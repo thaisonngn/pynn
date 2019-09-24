@@ -22,6 +22,8 @@ parser.add_argument('--d-inner-hid', type=int, default=1024)
 parser.add_argument('--d-k', type=int, default=64)
 
 parser.add_argument('--use-cnn', help='use CNN filters', action='store_true')
+parser.add_argument('--freq-kn', help='frequency kernel', type=int, default=3)
+parser.add_argument('--freq-std', help='frequency stride', type=int, default=2)
 parser.add_argument('--shared-kv', help='sharing key and value weights', action='store_true')
 parser.add_argument('--shared-emb', help='sharing decoder embedding', action='store_true')
 parser.add_argument('--attn-mode', help='encoder attention mode',  type=int, default=0)
@@ -44,6 +46,8 @@ if __name__ == '__main__':
         'n_dec': args.n_dec,
         'n_dec_head': args.n_head,
         'use_cnn': args.use_cnn,
+        'freq_kn': args.freq_kn,
+        'freq_std': args.freq_std,
         'shared_kv': args.shared_kv,
         'shared_emb': args.shared_emb,       
         'attn_mode': args.attn_mode}

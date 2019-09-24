@@ -35,7 +35,7 @@ class Encoder(nn.Module):
     def __init__(
             self,
             d_input, n_layers, n_head, d_k, d_model, d_inner,
-            dropout=0.1, layer_drop=0., shared_kv=False, attn_mode=0, use_cnn=False, freq_kn=8, freq_std=4):
+            dropout=0.1, layer_drop=0., shared_kv=False, attn_mode=0, use_cnn=False, freq_kn=3, freq_std=2):
 
         super().__init__()
 
@@ -161,7 +161,8 @@ class Transformer(nn.Module):
     def __init__(
             self,
             n_vocab=1000, d_input=40, d_model=512, d_inner=2048,
-            n_enc=8, n_enc_head=8, n_dec=4, n_dec_head=8, d_k=64, use_cnn=False,
+            n_enc=8, n_enc_head=8, n_dec=4, n_dec_head=8, d_k=64,
+            use_cnn=False, freq_kn=3, freq_std=2,
             dropout=0.1, emb_drop=0., enc_drop=0.0, dec_drop=0.0,
             shared_kv=False, shared_emb=False, attn_mode=0):
 
@@ -169,7 +170,8 @@ class Transformer(nn.Module):
 
         self.encoder = Encoder(
             d_input=d_input, d_model=d_model, d_inner=d_inner,
-            n_layers=n_enc, n_head=n_enc_head, d_k=d_k, use_cnn=use_cnn,
+            n_layers=n_enc, n_head=n_enc_head, d_k=d_k,
+            use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std,
             dropout=dropout, layer_drop=enc_drop,
             shared_kv=shared_kv, attn_mode=attn_mode)
 
