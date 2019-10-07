@@ -19,6 +19,7 @@ def write_ark_thread(segs, out_ark, out_scp, args):
             wav, start, end = tokens[:3]
             seg_name = '%s-%06.f-%06.f' % (wav, float(start)*100, float(end)*100)
         else:
+            if len(tokens) == 2: tokens.extend(['0.0', '0.0'])
             seg_name, wav, start, end = tokens[:4]
         start, end = float(start), float(end)
         
@@ -33,8 +34,11 @@ def write_ark_thread(segs, out_ark, out_scp, args):
             cache_wav = wav
 
         start = int(start * sample_rate)
-        end = int(end * sample_rate)
+        end = -1 if end <= 0. else int(end * sample_rate)
         feats = audio.extract_fbank(signal[start:end], fbank_mat, sample_rate=sample_rate)
+        
+        if args.mean_norm:
+            feats = feats - feats.mean(axis=0, keepdims=True)
         
         dic = {seg_name: feats}
         kaldi_io.write_ark(out_ark, dic, out_scp, append=True)
@@ -42,11 +46,12 @@ def write_ark_thread(segs, out_ark, out_scp, args):
 
 parser = argparse.ArgumentParser(description='pynn')
 parser.add_argument('--seg-desc', help='path to segment description file', required=True)
-parser.add_argument('--seg-name', help='auto generating segment name', action='store_true')
+parser.add_argument('--seg-name', help='to generate segment name with timestamps', action='store_true')
 parser.add_argument('--wav-path', help='path to wav files', type=str, default=None)
 parser.add_argument('--sample-rate', help='path to wav files', type=int, default=16000)
 parser.add_argument('--fbank', help='number of filter banks', type=int, default=40)
 parser.add_argument('--nfft', help='number of FFT points', type=int, default=256)
+parser.add_argument('--mean-norm', help='to perform mean substraction', action='store_true')
 parser.add_argument('--output', help='output file', type=str, default='data')
 parser.add_argument('--jobs', help='number of parallel jobs', type=int, default=1)
 

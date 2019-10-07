@@ -45,11 +45,13 @@ parser.add_argument('--max-len', help='max sequence length', type=int, default=5
 parser.add_argument('--max-utt', help='max utt per partition', type=int, default=4096)
 parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
 parser.add_argument('--spec-drop', help='argument inputs', action='store_true')
-parser.add_argument('--freq-drop', help='frequency inputs', action='store_true')
-parser.add_argument('--freq-group', help='group of frequecies', type=int, default=1)
+parser.add_argument('--spec-bar', help='number of bars of spec-drop', type=int, default=2)
 parser.add_argument('--time-stretch', help='argument inputs', action='store_true')
 parser.add_argument('--time-win', help='time stretch window', type=int, default=10000)
+parser.add_argument('--time-static', help='time stretch static', action='store_true')
+parser.add_argument('--aug-nomix', help='not mixing augment', action='store_true')
 parser.add_argument('--subseq-ratio', type=float, default=0.0)
+parser.add_argument('--subseq-static', help='static subseq', action='store_true')
 parser.add_argument('--model-path', help='model saving path', default='model')
 
 parser.add_argument('--n-epoch', type=int, default=50)
@@ -99,9 +101,11 @@ if __name__ == '__main__':
     loader = KaldiBatchLoader if args.batch else KaldiStreamLoader
     tr_loader = loader(args.train_scp, args.train_target, args.time_index, downsample=args.downsample, 
                                   max_len=args.max_len, max_utt=args.max_utt, shuffle=args.shuffle,
-                                  mean_sub=args.mean_sub, spec_drop=args.spec_drop, fp16=args.fp16,
-                                  time_stretch=args.time_stretch, time_win=args.time_win, sub_seq=args.subseq_ratio,
-                                  freq_drop=args.freq_drop, freq_group=args.freq_group)
+                                  mean_sub=args.mean_sub, fp16=args.fp16,
+                                  spec_drop=args.spec_drop, spec_bar=args.spec_bar, 
+                                  time_stretch=args.time_stretch, time_win=args.time_win, ts_static=args.time_stretch,
+                                  sub_seq=args.subseq_ratio, ss_static=args.subseq_static,
+                                  aug_mix=(not args.aug_nomix))
     cv_loader = KaldiStreamLoader(args.valid_scp, args.valid_target, downsample=args.downsample, 
                                   mean_sub=args.mean_sub, max_len=args.max_len, max_utt=args.max_utt, fp16=args.fp16)
 

@@ -13,8 +13,8 @@ class DeepLSTM(nn.Module):
         super(DeepLSTM, self).__init__()
 
         if channels > 0:
-            cnn = [nn.Conv2d(channels, 32, kernel_size=(3, 3), stride=2), nn.ReLU(), nn.BatchNorm2d(32),
-                   nn.Conv2d(32, 32, kernel_size=(3, 3), stride=2), nn.ReLU(), nn.BatchNorm2d(32)]
+            cnn = [nn.Conv2d(channels, 32, kernel_size=(3, 3), stride=2),
+                   nn.Conv2d(32, 32, kernel_size=(3, 3), stride=2)]
             self.cnn = nn.Sequential(*cnn)
             input_size = (((input_size // channels) - 3) // 4)*32
         else:

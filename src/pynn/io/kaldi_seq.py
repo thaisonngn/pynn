@@ -14,8 +14,9 @@ class KaldiStreamLoader(object):
 
     def __init__(self, scp_path, label_path=None, time_idx_path=None, sek=True, downsample=1,
                        sort_src=False, pack_src=False, max_len=10000, max_utt=4096, 
-                       mean_sub=False, spec_drop=False, time_stretch=False, time_win=10000,
-                       freq_drop=False, freq_group=1, sub_seq=0.25, shuffle=False, fp16=False):
+                       mean_sub=False, spec_drop=False, spec_bar=2,
+                       time_stretch=False, time_win=10000, ts_static=False,
+                       aug_mix=True, sub_seq=0.25, ss_static=False, shuffle=False, fp16=False):
         self.scp_path = scp_path     # path to the .scp file
         self.label_path = label_path # path to the label file
         self.time_idx_path = time_idx_path
@@ -29,11 +30,13 @@ class KaldiStreamLoader(object):
                 
         self.mean_sub = mean_sub
         self.spec_drop = spec_drop
+        self.spec_bar = spec_bar
         self.time_stretch = time_stretch
         self.time_win = time_win
-        self.freq_drop = freq_drop
-        self.freq_group = freq_group
+        self.ts_static = ts_static
+        self.aug_mix = aug_mix
         self.sub_seq = sub_seq
+        self.ss_static = ss_static
         self.fp16 = fp16
 
         self.scp_dir = ''
@@ -68,6 +71,7 @@ class KaldiStreamLoader(object):
             token = [int(token) for token in tokens[1:]]
             l = len(token) // 2
             self.time_idx[utt_id] = (token[0:l], token[l:])
+        self.time_cache = ({}, {}, {})
 
     def _read_string(self, ark_file):
         s = ''
@@ -151,7 +155,7 @@ class KaldiStreamLoader(object):
         lst = sorted(zip(feats, ids), key=lambda e : -e[0].shape[0])
         src, ids = zip(*lst)
 
-        src = self.agument_src(src)
+        src = self.augment_src(src)
         src = self.collate_src(src)
         return (*src, ids)
 
@@ -166,8 +170,7 @@ class KaldiStreamLoader(object):
         utt_lbl = self.label_dic[utt_id]
 
         if self.time_idx is not None and self.sub_seq > 0.:
-            tid = self.time_idx[utt_id]
-            utt_mat, utt_lbl = self.sub_sequence_inst(utt_mat, utt_lbl, tid, self.sub_seq)
+            utt_mat, utt_lbl = self.sub_sequence_inst(utt_mat, utt_lbl, utt_id, self.sub_seq)
         
         if self.sek:
             utt_lbl = [1] + [el+2 for el in utt_lbl] + [2]
@@ -185,7 +188,7 @@ class KaldiStreamLoader(object):
                 self.end_reading = True
                 break
             utt_mat, utt_lbl = self.read_utt_label(utt_id, utt_mat)
-            if utt_lbl is None: continue
+            if utt_lbl is None: continue               
 
             self.feat.append(utt_mat)
             self.label.append(utt_lbl)
@@ -198,8 +201,8 @@ class KaldiStreamLoader(object):
 
         return self.utt_index < self.utt_count
 
-    def sub_sequence_inst_(self, inst, tgt, tid, ratio=0.25):
-        sx, fx = tid
+    def sub_sequence_inst_(self, inst, tgt, utt_id, ratio):
+        sx, fx = self.time_idx[utt_id]
         l = len(sx)        
         if l < 4 or random.random() > ratio:
             return inst, tgt
@@ -210,11 +213,15 @@ class KaldiStreamLoader(object):
  
         return inst, tgt
 
-    def sub_sequence_inst(self, inst, tgt, tid, ratio=0.25):
-        sx, fx = tid
+    def sub_sequence_inst(self, inst, tgt, utt_id, ratio):
+        if self.ss_static:
+            return self.sub_sequence_inst_static(inst, tgt, utt_id, ratio)
+            
+        sx, fx = self.time_idx[utt_id] 
         l = len(sx)
         if l < 4 or random.random() > ratio:
             return inst, tgt
+
         mode = random.randint(0, 2)
         if mode == 0:
             idx = random.randint(l//2, l-1)
@@ -226,7 +233,44 @@ class KaldiStreamLoader(object):
             inst = inst[fx[idx]:, :]
         elif mode == 2:
             sid = random.randint(1, l//4)
-            eid = random.randint(l*3//4, l-1)
+            eid = random.randint(l*3//4, l-1) 
+            tgt = tgt[sx[sid]:sx[eid]-1]
+            inst = inst[fx[sid]:fx[eid]-1, :]
+
+        return inst, tgt
+
+    def sub_sequence_inst_static(self, inst, tgt, utt_id, ratio):
+        sx, fx = self.time_idx[utt_id] 
+        l = len(sx)
+        if l < 4 or random.random() > ratio:
+            return inst, tgt
+
+        mode = random.randint(0, 2)
+        if mode == 0:
+            if not utt_id in self.time_cache[mode]:
+                idx = random.randint(l//2, l-1)
+                self.time_cache[mode][utt_id] = idx
+            else:
+                idx = self.time_cache[mode][utt_id]
+            tgt = tgt[0: sx[idx]-1]
+            inst = inst[0:fx[idx]-1, :]
+        elif mode == 1:
+            if not utt_id in self.time_cache[mode]:
+                idx = random.randint(1, l//2)
+                self.time_cache[mode][utt_id] = idx
+            else:
+                idx = self.time_cache[mode][utt_id]
+
+            tgt = tgt[sx[idx]:]
+            inst = inst[fx[idx]:, :]
+        elif mode == 2:
+            if not utt_id in self.time_cache[mode]:
+                sid = random.randint(1, l//4)
+                eid = random.randint(l*3//4, l-1)        
+                self.time_cache[mode][utt_id] = (sid, eid)
+            else:
+                sid, eid = self.time_cache[mode][utt_id]
+
             tgt = tgt[sx[sid]:sx[eid]-1]
             inst = inst[fx[sid]:fx[eid]-1, :]
 
@@ -234,8 +278,8 @@ class KaldiStreamLoader(object):
 
     def timefreq_drop_inst(self, inst, num=2, time_drop=0.2, freq_drop=0.15):
         time_num, freq_num = inst.shape
-        freq_num = freq_num // self.downsample
-        time_len = 72 // self.downsample
+        freq_num = freq_num
+        time_len = 72
 
         max_time = int(time_drop*time_num)
         for i in range(num):
@@ -246,24 +290,31 @@ class KaldiStreamLoader(object):
 
             n = random.randint(0, int(freq_drop*freq_num))
             f0 = random.randint(0, freq_num-n)
-            for j in range(self.downsample):
-                inst[:, f0:f0+n] = 0
-                f0 += freq_num
-        return inst
-
-    def freq_drop_inst(self, inst, group=1):
-        freq_num = inst.shape[1]
-        for i in range(8):
-           f0 = random.randint(0, freq_num-group)
-           inst[:, f0:f0+group] = 0
+            inst[:, f0:f0+n] = 0
         return inst
 
     def time_stretch_inst(self, inst, low=0.8, high=1.25, win=10000):
+        if self.ss_static:
+            return self.time_stretch_inst_static(inst, low, high, win)
+                
         time_len = inst.shape[0]
         ids = None
         for i in range((time_len // win) + 1):
             s = random.uniform(low, high)
             e = min(time_len, win*(i+1))          
+            r = np.arange(win*i, e-1, s, dtype=np.float32)
+            r = np.round(r).astype(np.int32)
+            ids = r if ids is None else np.concatenate((ids, r))
+        return inst[ids]
+
+    def time_stretch_inst_static(self, inst, low=0.8, high=1.25, win=10000):
+        if random.random() < 0.3: return inst
+
+        time_len = inst.shape[0]
+        ids = None
+        for i in range((time_len // win) + 1):
+            s = low if random.random() < 0.5 else high
+            e = min(time_len, win*(i+1))
             r = np.arange(win*i, e-1, s, dtype=np.float32)
             r = np.round(r).astype(np.int32)
             ids = r if ids is None else np.concatenate((ids, r))
@@ -276,14 +327,16 @@ class KaldiStreamLoader(object):
         feature = feature[:(feature.shape[0]//cf)*cf,:]
         return feature.reshape(feature.shape[0]//cf, feature.shape[1]*cf)
      
-    def agument_src(self, src):
+    def augment_src(self, src):
         insts = []
+        ar = random.random()
         for inst in src:
-            inst = self.time_stretch_inst(inst, win=self.time_win) if self.time_stretch else inst
+            if ar >= 0.5 or self.aug_mix:
+                inst = self.time_stretch_inst(inst, win=self.time_win) if self.time_stretch else inst
             inst = self.mean_sub_inst(inst) if self.mean_sub else inst
-            inst = self.freq_drop_inst(inst, group=self.freq_group) if self.freq_drop else inst
+            if ar < 0.5 or self.aug_mix:
+                inst = self.timefreq_drop_inst(inst, num=self.spec_bar) if self.spec_drop else inst            
             inst = self.down_sample_inst(inst, self.downsample) if self.downsample > 1 else inst
-            inst = self.timefreq_drop_inst(inst) if self.spec_drop else inst
             insts.append(inst)
         return insts
 
@@ -322,7 +375,7 @@ class KaldiStreamLoader(object):
         src = self.feat[self.utt_index:self.utt_index+batch_size]
         tgt = self.label[self.utt_index:self.utt_index+batch_size]
 
-        src = self.agument_src(src)
+        src = self.augment_src(src)
         lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
         src, tgt = zip(*lst)
         self.utt_index += len(src)
@@ -343,7 +396,7 @@ class KaldiStreamLoader(object):
         last = (j==l)
 
         src, tgt = self.feat[self.utt_index:j], self.label[self.utt_index:j]
-        src = self.agument_src(src)
+        src = self.augment_src(src)
         if self.sort_src or self.pack_src:
             lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
             src, tgt = zip(*lst)
@@ -358,6 +411,10 @@ class KaldiStreamLoader(object):
         
 
 class KaldiBatchLoader(KaldiStreamLoader):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.shuffle = False
 
     def next_partition(self):
         if self.end_reading:
@@ -398,11 +455,10 @@ class KaldiBatchLoader(KaldiStreamLoader):
         tgs = 0
         for tg in tgt: tgs += len(tg)
         
-        src = self.agument_src(src)
+        src = self.augment_src(src)
         if self.sort_src or self.pack_src:
             lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
             src, tgt = zip(*lst)
-
         
         seqs = len(src)
         self.utt_index += 1

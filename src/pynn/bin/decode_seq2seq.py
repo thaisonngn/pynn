@@ -28,6 +28,7 @@ parser.add_argument('--use-cnn', help='use CNN filters', action='store_true')
 parser.add_argument('--freq-kn', help='frequency kernel', type=int, default=3)
 parser.add_argument('--freq-std', help='frequency stride', type=int, default=2)
 parser.add_argument('--shared-emb', help='sharing decoder embedding', action='store_true')
+parser.add_argument('--weight-drop', help='connection drop', action='store_true')
 parser.add_argument('--model', help='model file', required=True)
 
 parser.add_argument('--dict', help='dictionary file', required=True)
@@ -73,7 +74,8 @@ if __name__ == '__main__':
         'use_cnn': args.use_cnn,
         'freq_kn': args.freq_kn,
         'freq_std': args.freq_std,
-        'shared_emb': args.shared_emb}
+        'shared_emb': args.shared_emb,
+        'weight_drop': args.weight_drop}
     model = Seq2Seq(**m_params).to(device)
     
     model.load_state_dict(torch.load(args.model))

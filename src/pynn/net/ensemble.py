@@ -25,7 +25,6 @@ class Ensemble(nn.Module):
         dec_out = 0.
         for model, enc, mask in zip(self.models, enc_out, src_mask):
             dec_out += model.decode(enc, mask, tgt_seq)
-        #dec_out = torch.log_softmax(dec_out, dim=-1)
         dec_out = dec_out / len(self.models)
 
         return dec_out
