@@ -35,10 +35,12 @@ class Encoder(nn.Module):
     def __init__(
             self,
             d_input, n_layers, n_head, d_k, d_model, d_inner,
-            dropout=0.1, layer_drop=0., shared_kv=False, attn_mode=0, use_cnn=False, freq_kn=3, freq_std=2):
+            dropout=0.1, layer_drop=0., shared_kv=False, attn_mode=0,
+            time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
 
         super().__init__()
 
+        self.time_ds = time_ds
         if use_cnn:
             cnn = [nn.Conv2d(1, 32, kernel_size=(3, freq_kn), stride=(2, freq_std)),
                    nn.Conv2d(32, 32, kernel_size=(3, freq_kn), stride=(2, freq_std))]
@@ -75,6 +77,13 @@ class Encoder(nn.Module):
 
     def forward(self, src_seq, src_mask):
         # -- Forward
+        if self.time_ds > 1:
+            x, ds = src_seq, self.time_ds
+            l = ((x.size(1) - 3) // ds) * ds
+            x = x[:, :l, :]
+            src_seq = x.view(x.size(0), -1, x.size(2)*ds)
+            if src_mask is not None: src_mask = src_mask[:, 0:src_seq.size(1)*ds:ds]
+                
         if self.cnn is not None:
             src_seq = src_seq.unsqueeze(1)
             src_seq = self.cnn(src_seq)
@@ -162,7 +171,7 @@ class Transformer(nn.Module):
             self,
             n_vocab=1000, d_input=40, d_model=512, d_inner=2048,
             n_enc=8, n_enc_head=8, n_dec=4, n_dec_head=8, d_k=64,
-            use_cnn=False, freq_kn=3, freq_std=2,
+            time_ds=1, use_cnn=False, freq_kn=3, freq_std=2,
             dropout=0.1, emb_drop=0., enc_drop=0.0, dec_drop=0.0,
             shared_kv=False, shared_emb=False, attn_mode=0):
 
@@ -171,7 +180,7 @@ class Transformer(nn.Module):
         self.encoder = Encoder(
             d_input=d_input, d_model=d_model, d_inner=d_inner,
             n_layers=n_enc, n_head=n_enc_head, d_k=d_k,
-            use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std,
+            time_ds=time_ds,use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std,
             dropout=dropout, layer_drop=enc_drop,
             shared_kv=shared_kv, attn_mode=attn_mode)
 

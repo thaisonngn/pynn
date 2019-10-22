@@ -24,6 +24,7 @@ parser.add_argument('--n-dec', type=int, default=2)
 parser.add_argument('--d-input', type=int, default=40)
 parser.add_argument('--d-model', type=int, default=320)
 
+parser.add_argument('--time-ds', help='downsample in time axis', type=int, default=1)
 parser.add_argument('--use-cnn', help='use CNN filters', action='store_true')
 parser.add_argument('--freq-kn', help='frequency kernel', type=int, default=3)
 parser.add_argument('--freq-std', help='frequency stride', type=int, default=2)
@@ -71,6 +72,7 @@ if __name__ == '__main__':
         'n_enc': args.n_enc,
         'n_dec': args.n_dec,
         'n_head': args.n_head,
+        'time_ds': args.time_ds,
         'use_cnn': args.use_cnn,
         'freq_kn': args.freq_kn,
         'freq_std': args.freq_std,

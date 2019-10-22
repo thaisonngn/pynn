@@ -29,9 +29,10 @@ class WeightDropLSTM(nn.LSTM):
 
 class Encoder(nn.Module):
     def __init__(self, input_size, hidden_size, layers, bidirectional=True,
-            dropout=0.2, weight_drop=False, use_cnn=False, freq_kn=3, freq_std=2):
+            dropout=0.2, weight_drop=False, time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super().__init__()
 
+        self.time_ds = time_ds
         if use_cnn:
             cnn = [nn.Conv2d(1, 32, kernel_size=(3, freq_kn), stride=(2, freq_std)),
                    nn.Conv2d(32, 32, kernel_size=(3, freq_kn), stride=(2, freq_std))]
@@ -45,6 +46,13 @@ class Encoder(nn.Module):
                         bidirectional=bidirectional, bias=False, dropout=dropout, batch_first=True)
 
     def forward(self, x, mask=None):
+        if self.time_ds > 1:
+            ds = self.time_ds
+            l = ((x.size(1) - 3) // ds) * ds
+            x = x[:, :l, :]
+            x = x.view(x.size(0), -1, x.size(2)*ds)
+            if mask is not None: mask = mask[:, 0:x.size(1)*ds:ds]
+                
         if self.cnn is not None:
             x = self.cnn(x.unsqueeze(1))
             x = x.permute(0, 2, 1, 3).contiguous()
@@ -109,11 +117,12 @@ class Decoder(nn.Module):
 
 class Seq2Seq(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, n_enc=5, n_dec=2,
-            n_head=8, use_cnn=False, freq_kn=3, freq_std=2, shared_emb=True, dropout=0.2, weight_drop=False, emb_drop=0.):
+            n_head=8, shared_emb=True, dropout=0.2, weight_drop=False, emb_drop=0.,
+            time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super(Seq2Seq, self).__init__()
         
         self.encoder = Encoder(input_size, hidden_size, n_enc, dropout=dropout, weight_drop=weight_drop,
-                            use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std)
+                            time_ds=time_ds, use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std)
         self.decoder = Decoder(output_size, hidden_size, n_dec, n_head,
                             shared_emb=shared_emb, dropout=dropout, weight_drop=weight_drop, emb_drop=emb_drop)
 

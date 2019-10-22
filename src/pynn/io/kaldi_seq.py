@@ -172,7 +172,7 @@ class KaldiStreamLoader(object):
         if self.time_idx is not None and self.sub_seq > 0.:
             utt_mat, utt_lbl = self.sub_sequence_inst(utt_mat, utt_lbl, utt_id, self.sub_seq)
         
-        if self.sek:
+        if self.sek and utt_lbl is not None:
             utt_lbl = [1] + [el+2 for el in utt_lbl] + [2]
         return utt_mat, utt_lbl
     
@@ -188,7 +188,7 @@ class KaldiStreamLoader(object):
                 self.end_reading = True
                 break
             utt_mat, utt_lbl = self.read_utt_label(utt_id, utt_mat)
-            if utt_lbl is None: continue               
+            if utt_lbl is None: continue            
 
             self.feat.append(utt_mat)
             self.label.append(utt_lbl)
@@ -204,7 +204,7 @@ class KaldiStreamLoader(object):
     def sub_sequence_inst_(self, inst, tgt, utt_id, ratio):
         sx, fx = self.time_idx[utt_id]
         l = len(sx)        
-        if l < 4 or random.random() > ratio:
+        if l <= 4 or random.random() > ratio:
             return inst, tgt
         sid = random.randint(1, l//4)
         eid = random.randint(l*3//4, l-1)
@@ -219,7 +219,12 @@ class KaldiStreamLoader(object):
             
         sx, fx = self.time_idx[utt_id] 
         l = len(sx)
-        if l < 4 or random.random() > ratio:
+        
+        if l < 4:
+            #if random.random() < ratio: tgt = None
+            return inst, tgt
+
+        if random.random() > ratio:
             return inst, tgt
 
         mode = random.randint(0, 2)
@@ -242,7 +247,12 @@ class KaldiStreamLoader(object):
     def sub_sequence_inst_static(self, inst, tgt, utt_id, ratio):
         sx, fx = self.time_idx[utt_id] 
         l = len(sx)
-        if l < 4 or random.random() > ratio:
+
+        if l < 4:
+            #if random.random() < ratio: tgt = None
+            return inst, tgt
+
+        if random.random() > ratio:
             return inst, tgt
 
         mode = random.randint(0, 2)

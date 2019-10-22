@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from pynn.util.decoder import Decoder
 from pynn.io.kaldi_seq import KaldiStreamLoader
-from pynn.net.tf_cnn import Transformer
+from pynn.net.tf import Transformer
 from pynn.net.seq2seq import Seq2Seq
 from pynn.net.ensemble import Ensemble
 
