@@ -32,7 +32,6 @@ parser.add_argument('--freq-std', help='frequency stride', type=int, default=2)
 parser.add_argument('--shared-emb', help='sharing decoder embedding', action='store_true')
 parser.add_argument('--smooth', type=float, default=0.1)
 parser.add_argument('--dropout', type=float, default=0.2)
-parser.add_argument('--weight-drop', help='connection drop', action='store_true')
 parser.add_argument('--emb-drop', type=float, default=0.0)
 
 parser.add_argument('--downsample', help='concated frames', type=int, default=1)
@@ -83,7 +82,6 @@ if __name__ == '__main__':
         freq_std=args.freq_std,
         shared_emb=args.shared_emb,
         dropout=args.dropout,
-        weight_drop=args.weight_drop,
         emb_drop=args.emb_drop).to(device)
 
     loader = KaldiBatchLoader if args.batch else KaldiStreamLoader

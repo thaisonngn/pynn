@@ -8,28 +8,9 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from .attn import MultiHeadAttention
 
-class WeightDropLSTM(nn.LSTM):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.weights = ['weight_hh_l' + str(i) for i in range(self.num_layers)]
-
-        for name_w in self.weights:
-            w = self._parameters[name_w]
-            self._parameters[name_w + '_raw'] = nn.Parameter(w)
- 
-    def forward(self, *args, **kwargs):
-        for name_w in self.weights:
-            raw_w = self._parameters[name_w + '_raw']
-            w = F.dropout(raw_w, p=self.dropout, training=self.training)
-            self._parameters[name_w] = w
-
-        return super().forward(*args, **kwargs)
-
-
 class Encoder(nn.Module):
     def __init__(self, input_size, hidden_size, layers, bidirectional=True,
-            dropout=0.2, weight_drop=False, time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
+            dropout=0.2, time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super().__init__()
 
         self.time_ds = time_ds
@@ -41,8 +22,7 @@ class Encoder(nn.Module):
         else:
             self.cnn = None
 
-        LSTM = WeightDropLSTM if weight_drop else nn.LSTM
-        self.rnn = LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=layers,
+        self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=layers,
                         bidirectional=bidirectional, bias=False, dropout=dropout, batch_first=True)
 
     def forward(self, x, mask=None):
@@ -74,7 +54,7 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(self, output_size, hidden_size, layers, n_head=8, shared_emb=True,
-            dropout=0.2, weight_drop=False, emb_drop=0.):
+            dropout=0.2, emb_drop=0.):
         super().__init__()
 
         # Keep for reference
@@ -91,8 +71,7 @@ class Decoder(nn.Module):
         self.attn = MultiHeadAttention(n_head, hidden_size, d_k, dropout=dropout)
 
         dropout = (0 if layers == 1 else dropout)
-        LSTM = WeightDropLSTM if weight_drop else nn.LSTM
-        self.lstm = LSTM(hidden_size, hidden_size, layers, dropout=dropout, batch_first=True)
+        self.lstm = nn.LSTM(hidden_size, hidden_size, layers, dropout=dropout, batch_first=True)
 
         self.project = nn.Linear(hidden_size, output_size, bias=True)
         if shared_emb: self.emb.weight = self.project.weight
@@ -117,14 +96,14 @@ class Decoder(nn.Module):
 
 class Seq2Seq(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, n_enc=5, n_dec=2,
-            n_head=8, shared_emb=True, dropout=0.2, weight_drop=False, emb_drop=0.,
+            n_head=8, shared_emb=True, dropout=0.2, emb_drop=0.,
             time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super(Seq2Seq, self).__init__()
         
-        self.encoder = Encoder(input_size, hidden_size, n_enc, dropout=dropout, weight_drop=weight_drop,
+        self.encoder = Encoder(input_size, hidden_size, n_enc, dropout=dropout,
                             time_ds=time_ds, use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std)
         self.decoder = Decoder(output_size, hidden_size, n_dec, n_head,
-                            shared_emb=shared_emb, dropout=dropout, weight_drop=weight_drop, emb_drop=emb_drop)
+                            shared_emb=shared_emb, dropout=dropout, emb_drop=emb_drop)
 
     def forward(self, inputs, masks, targets, sampling=0.):
         enc_out, masks = self.encoder(inputs, masks)
