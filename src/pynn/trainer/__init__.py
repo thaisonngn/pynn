@@ -77,7 +77,7 @@ class ScheduledOptim():
 
     def load_state_dict(self, state_dict):
         self.steps = state_dict.pop('steps', 0)
-        amp_state = state_dict.pop('steps', None)
+        amp_state = state_dict.pop('amp', None)
         if self.amp and amp_state:
             amp.load_state_dict(amp_state)
         self.optim.load_state_dict(state_dict)
