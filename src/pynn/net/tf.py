@@ -72,7 +72,7 @@ class Encoder(nn.Module):
             fwd_mask = (slf_mask + sequent_mask).gt(0)
             sequent_mask = get_sequent_mask(src_seq, flip=False)
             bwd_mask = (slf_mask + sequent_mask).gt(0)
-            slf_mask = torch.cat([bwd_mask, bwd_mask])
+            slf_mask = torch.cat([fwd_mask, bwd_mask])
         return slf_mask
 
     def forward(self, src_seq, src_mask):

@@ -136,7 +136,7 @@ def train_model(model, datasets, epochs, device, cfg):
     opt = ScheduledOptim(
         optim.Adam(
             filter(lambda x: x.requires_grad, model.parameters()),
-            betas=(0.9, 0.98), eps=1e-09), 512, n_warmup, lr)
+            betas=(0.9, 0.98), eps=1e-09), 512, n_warmup, 0, lr)
 
     criterion = nn.CTCLoss(reduction='sum')
 
