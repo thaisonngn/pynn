@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+# encoding: utf-8
+
+# Copyright 2019 Thai-Son Nguyen
+# Licensed under the Apache License, Version 2.0 (the "License")
+
 import time
 import os
 import copy
@@ -11,30 +17,17 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from pynn.util.decoder import Decoder
-from pynn.io.kaldi_seq import KaldiStreamLoader
+from pynn.decoder.seq2seq import beam_search
+from pynn.util import write_ctm, write_text
+from pynn.io.kaldi_seq import ScpStreamReader
 from pynn.net.tf import Transformer
  
 parser = argparse.ArgumentParser(description='pynn')
 
-parser.add_argument('--n-classes', type=int, required=True)
-parser.add_argument('--n-head', type=int, default=8)
-parser.add_argument('--n-enc', type=int, default=4)
-parser.add_argument('--n-enc-head', type=int, default=0)
-parser.add_argument('--n-dec', type=int, default=4)
-parser.add_argument('--d-input', type=int, default=80)
-parser.add_argument('--d-model', type=int, default=512)
-parser.add_argument('--d-inner-hid', type=int, default=1024)
-parser.add_argument('--d-k', type=int, default=64)
+parser.add_argument('--model-dic', help='model dictionary', required=True)
+parser.add_argument('--lm-dic', help='language model dictionary', default=None)
+parser.add_argument('--lm-scale', help='language model scale', type=float, default=0.5)
 
-parser.add_argument('--time-ds', help='downsample in time axis', type=int, default=1)
-parser.add_argument('--use-cnn', help='use CNN filters', action='store_true')
-parser.add_argument('--freq-kn', help='frequency kernel', type=int, default=3)
-parser.add_argument('--freq-std', help='frequency stride', type=int, default=2)
-parser.add_argument('--shared-kv', help='sharing key and value weights', action='store_true')
-parser.add_argument('--shared-emb', help='sharing decoder embedding', action='store_true')
-parser.add_argument('--attn-mode', help='encoder attention mode',  type=int, default=0)
-parser.add_argument('--model', help='model file', required=True)
 parser.add_argument('--dict', help='dictionary file', default=None)
 parser.add_argument('--word-dict', help='word dictionary file', default=None)
 parser.add_argument('--data-scp', help='path to data scp', required=True)
@@ -44,6 +37,8 @@ parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
 parser.add_argument('--batch-size', help='batch size', type=int, default=32)
 parser.add_argument('--beam-size', help='beam size', type=int, default=10)
 parser.add_argument('--max-len', help='max len', type=int, default=400)
+parser.add_argument('--coverage', help='coverage term', type=float, default=0)
+parser.add_argument('--len-norm', help='length normalization', action='store_true')
 parser.add_argument('--output', help='output file', type=str, default='hypos/H_1_LV.ctm')
 parser.add_argument('--format', help='output format', type=str, default='ctm')
 parser.add_argument('--space', help='space token', type=str, default='<space>')
@@ -69,46 +64,36 @@ if __name__ == '__main__':
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    n_enc_head = args.n_head if args.n_enc_head==0 else args.n_enc_head
-    m_params = {'n_vocab':args.n_classes,
-        'd_input': args.d_input,
-        'd_k': args.d_k,
-        'd_model': args.d_model,
-        'd_inner': args.d_inner_hid,
-        'n_enc': args.n_enc,
-        'n_enc_head': n_enc_head,
-        'n_dec': args.n_dec,
-        'n_dec_head': args.n_head,
-        'time_ds': args.time_ds,
-        'use_cnn': args.use_cnn,
-        'freq_kn': args.freq_kn,
-        'freq_std': args.freq_std,        
-        'shared_kv': args.shared_kv,
-        'shared_emb': args.shared_emb,        
-        'attn_mode': args.attn_mode}
-    model = Transformer(**m_params).to(device)
-    
-    model.load_state_dict(torch.load(args.model))
+    mdic = torch.load(args.model_dic)
+    model = Transformer(**mdic['params']).to(device)
+    model.load_state_dict(mdic['state'])
     model.eval()
 
-    data_loader = KaldiStreamLoader(args.data_scp, mean_sub=args.mean_sub, downsample=args.downsample)
-    data_loader.initialize()
+    lm = None
+    if args.lm_dic is not None:
+        mdic = torch.load(args.lm_dic)
+        lm = SeqLM(**mdic['params']).to(device)
+        lm.load_state_dict(mdic['state'])
+
+    reader = ScpStreamReader(args.data_scp, mean_sub=args.mean_sub, downsample=args.downsample)
+    reader.initialize()
 
     since = time.time()
     batch_size = args.batch_size
     fout = open(args.output, 'w')
     while True:
-        src_seq, src_mask, utts = data_loader.read_batch_utt(batch_size)
+        src_seq, src_mask, utts = reader.read_batch_utt(batch_size)
         if len(utts) == 0: break
         with torch.no_grad():
             src_seq, src_mask = src_seq.to(device), src_mask.to(device)
-            hypos, scores = Decoder.beam_search(model, src_seq, src_mask,
-                                            device, args.beam_size, args.max_len)
+            hypos, scores = beam_search(model, src_seq, src_mask, device, args.beam_size,
+                                args.max_len, len_norm=args.len_norm, coverage=args.coverage,
+                                lm=lm, lm_scale=args.lm_scale)
             hypos, scores = hypos.tolist(), scores.tolist()
             if args.format == 'ctm':
-                Decoder.write_to_ctm(hypos, scores, fout, utts, dic, word_dic, args.space)
+                write_ctm(hypos, scores, fout, utts, dic, word_dic, args.space)
             else:
-                Decoder.write_to_text(hypos, scores, fout, utts, dic, args.space)
+                write_text(hypos, scores, fout, utts, dic, args.space)
     fout.close()
     time_elapsed = time.time() - since
     print("  Elapsed Time: %.0fm %.0fs" % (time_elapsed // 60, time_elapsed % 60))

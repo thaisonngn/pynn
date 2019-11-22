@@ -32,18 +32,16 @@ def train_epoch(model, data, opt, eps, device, batch_input, batch_update, n_prin
     opt.zero_grad()
     while data.available():
         # prepare data
-        batch = data.next(batch_input)
-        seqs, tgs, last = batch[-3:]
+        seqs, nseq, tgs, last = data.next(batch_input)
 
-        batch = batch[:-3]
-        src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), batch)
-        gold = tgt_seq[:, 1:]
-        tgt_seq = tgt_seq[:, :-1]
-        n_seq += seqs
+        seqs = seqs.to(device)
+        gold = seqs[:, 1:]
+        inputs = seqs[:, :-1]
+        n_seq += nseq
 
         try:
             # forward
-            pred = model(src_seq, src_mask, tgt_seq)
+            pred = model(inputs)
             # backward
             loss, loss_data, n_correct = cal_ce_loss(pred, gold, eps)
             if torch.isnan(loss.data):
@@ -98,14 +96,14 @@ def eval_epoch(model, data, device, batch_input):
         data.initialize()
         while data.available():
             # prepare data
-            batch = data.next(batch_input)
-            batch = batch[:-3]
-            src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), batch)
-            gold = tgt_seq[:, 1:]
-            tgt_seq = tgt_seq[:, :-1]
+            seqs, nseq, tgs, last = data.next(batch_input)
+
+            seqs = seqs.to(device)
+            gold = seqs[:, 1:]
+            inputs = seqs[:, :-1]
 
             # forward
-            pred = model(src_seq, src_mask, tgt_seq)
+            pred = model(inputs)
             loss, loss_data, n_correct = cal_ce_loss(pred, gold)
 
             # note keeping

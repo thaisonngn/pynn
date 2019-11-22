@@ -1,4 +1,8 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
+#!/usr/bin/env python3
+# encoding: utf-8
+
+# Copyright 2019 Thai-Son Nguyen
+# Licensed under the Apache License, Version 2.0 (the "License")
 
 import os
 import argparse
@@ -46,7 +50,7 @@ def write_ark_thread(segs, out_ark, out_scp, args):
 
 parser = argparse.ArgumentParser(description='pynn')
 parser.add_argument('--seg-desc', help='path to segment description file', required=True)
-parser.add_argument('--seg-name', help='to generate segment name with timestamps', action='store_true')
+parser.add_argument('--seg-name', help='generate segment name with timestamps', action='store_true')
 parser.add_argument('--wav-path', help='path to wav files', type=str, default=None)
 parser.add_argument('--sample-rate', help='path to wav files', type=int, default=16000)
 parser.add_argument('--fbank', help='number of filter banks', type=int, default=40)

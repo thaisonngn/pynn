@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+# encoding: utf-8
+
+# Copyright 2019 Thai-Son Nguyen
+# Licensed under the Apache License, Version 2.0 (the "License")
+
 import time
 import os
 import copy
@@ -12,7 +18,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from pynn.util.decoder import Decoder
-from pynn.io.kaldi_seq import KaldiStreamLoader
+from pynn.io.kaldi_seq import ScpStreamReader
 from pynn.net.tf import Transformer
 from pynn.net.seq2seq import Seq2Seq
 from pynn.net.ensemble import Ensemble
@@ -68,14 +74,14 @@ if __name__ == '__main__':
         models.append(model)
     model = Ensemble(models)
 
-    data_loader = KaldiStreamLoader(args.data_scp, mean_sub=args.mean_sub, downsample=args.downsample)
-    data_loader.initialize()
+    reader = ScpStreamReader(args.data_scp, mean_sub=args.mean_sub, downsample=args.downsample)
+    reader.initialize()
 
     since = time.time()
     batch_size = args.batch_size
     fout = open(args.output, 'w')
     while True:
-        src_seq, src_mask, utts = data_loader.read_batch_utt(batch_size)
+        src_seq, src_mask, utts = reader.read_batch_utt(batch_size)
         if len(utts) == 0: break
         with torch.no_grad():
             src_seq, src_mask = src_seq.to(device), src_mask.to(device)

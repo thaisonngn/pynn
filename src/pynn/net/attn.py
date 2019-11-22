@@ -1,9 +1,30 @@
-''' Define the Layers '''
+# Copyright 2019 Thai-Son Nguyen
+# Licensed under the Apache License, Version 2.0 (the "License")
+
+import math
 import numpy as np
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
+
+class PositionalEmbedding(nn.Module):
+    def __init__(self, d_model, max_len=80):
+        super().__init__()
+        # create constant 'pe' matrix with values
+        pe = torch.zeros(max_len, d_model)
+        for pos in range(max_len):
+            for i in range(0, d_model, 2):
+                pe[pos, i] = math.sin(pos / (10000**(2*i/d_model)))
+                pe[pos, i+1] = math.cos(pos / (10000**(2*(i+1)/d_model)))
+
+        self.register_buffer('pe', pe.unsqueeze(0))
+
+    def forward(self, x, scale=True):
+        _, seq_len, d_model = x.size()
+        x = x * math.sqrt(d_model) if scale else x
+        return x + Variable(self.pe[:,:seq_len], requires_grad=False)
 
 class XavierLinear(nn.Module):
     def __init__(self, d_in, d_out, bias=True):
@@ -40,7 +61,7 @@ class ScaledDotProductAttention(nn.Module):
 class MultiHeadAttention(nn.Module):
     ''' Multi-Head Attention module '''
 
-    def __init__(self, n_head, d_model, d_k, shared_kv=False, dropout=0.1, norm=True):
+    def __init__(self, n_head, d_model, d_k, shared_kv=False, dropout=0.1, norm=True, res=True):
         super().__init__()
 
         self.n_head = n_head
@@ -49,26 +70,27 @@ class MultiHeadAttention(nn.Module):
         self.w_qs = nn.Linear(d_model, n_head*d_k, bias=False)
         self.w_ks = nn.Linear(d_model, n_head*d_k, bias=False)
         self.w_vs = None if shared_kv else nn.Linear(d_model, n_head*d_k, bias=False)
-                
+  
         self.attention = ScaledDotProductAttention(np.power(d_k, 0.5), dropout)
 
         self.fc = nn.Linear(n_head * d_k, d_model, bias=False)
         self.dropout = nn.Dropout(dropout)
-        self.norm = norm
+
         self.layer_norm = nn.LayerNorm(d_model)
+        self.norm = norm
+        self.res = res
 
     def forward(self, q, k=None, mask=None, scale=1.0):
         d_k, n_head = self.d_k, self.n_head
 
-        if self.norm:
-            residual = q
-            q = self.layer_norm(q)
+        residual = q if self.res else None
+        q = self.layer_norm(q) if self.norm else q
         if k is None: k = q
 
         sz_b, len_q, _ = q.size()
         sz_b, len_k, _ = k.size()
 
-        k_ = k                
+        k_ = k
         q = self.w_qs(q).view(sz_b, len_q, n_head, d_k)
         k = self.w_ks(k).view(sz_b, len_k, n_head, d_k)
         q = q.permute(2, 0, 1, 3).contiguous().view(-1, len_q, d_k) # (n*b) x lq x dk
@@ -87,9 +109,10 @@ class MultiHeadAttention(nn.Module):
 
         output = output.view(n_head, sz_b, len_q, d_k)
         output = output.permute(1, 2, 0, 3).contiguous().view(sz_b, len_q, -1) # b x lq x (n*dv)
-
         output = self.dropout(self.fc(output))
-        if self.norm:
-            output = output*scale + residual
+        
+        output = output*scale
+        output = output if residual is None else (output+residual)
+        attn = attn.view(-1, n_head, attn.size(1), attn.size(2))
 
-        return output
+        return output, attn

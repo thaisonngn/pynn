@@ -20,9 +20,9 @@ import torch.nn.functional as F
 from pynn.decoder.seq2seq import beam_search
 from pynn.util import write_ctm, write_text
 from pynn.io.kaldi_seq import ScpStreamReader
-from pynn.net.seq2seq import Seq2Seq
+from pynn.net.hybrid import Hybrid
 from pynn.net.lm import SeqLM
- 
+
 parser = argparse.ArgumentParser(description='pynn')
 parser.add_argument('--model-dic', help='model dictionary', required=True)
 parser.add_argument('--lm-dic', help='language model dictionary', default=None)
@@ -33,7 +33,6 @@ parser.add_argument('--word-dict', help='word dictionary file', default=None)
 parser.add_argument('--data-scp', help='path to data scp', required=True)
 parser.add_argument('--downsample', help='concated frames', type=int, default=1)
 parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
-parser.add_argument('--zero-pad', help='padding zeros to sequence end', type=int, default=0)
 
 parser.add_argument('--batch-size', help='batch size', type=int, default=32)
 parser.add_argument('--beam-size', help='beam size', type=int, default=10)
@@ -66,18 +65,17 @@ if __name__ == '__main__':
     device = torch.device('cuda' if use_gpu else 'cpu')
 
     mdic = torch.load(args.model_dic)
-    model = Seq2Seq(**mdic['params']).to(device)
+    model = Hybrid(**mdic['params']).to(device)
     model.load_state_dict(mdic['state'])
     model.eval()
-    
+
     lm = None
     if args.lm_dic is not None:
         mdic = torch.load(args.lm_dic)
         lm = SeqLM(**mdic['params']).to(device)
         lm.load_state_dict(mdic['state'])
         
-    reader = ScpStreamReader(args.data_scp, mean_sub=args.mean_sub,
-                                    zero_pad=args.zero_pad, downsample=args.downsample)
+    reader = ScpStreamReader(args.data_scp, mean_sub=args.mean_sub, downsample=args.downsample)
     reader.initialize()
 
     since = time.time()

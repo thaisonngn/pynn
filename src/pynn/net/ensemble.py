@@ -1,3 +1,6 @@
+# Copyright 2019 Thai-Son Nguyen
+# Licensed under the Apache License, Version 2.0 (the "License")
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

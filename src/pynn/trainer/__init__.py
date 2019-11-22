@@ -1,4 +1,6 @@
-# shared functions for the module
+# Copyright 2019 Thai-Son Nguyen
+# Licensed under the Apache License, Version 2.0 (the "License")
+
 import time
 import os
 import copy
@@ -77,9 +79,9 @@ class ScheduledOptim():
 
     def load_state_dict(self, state_dict):
         self.steps = state_dict.pop('steps', 0)
-        amp_state = state_dict.pop('steps', None)
+        amp_state = state_dict.pop('amp', None)
         if self.amp and amp_state:
-            amp.load_state_dict(amp_state)
+            self.amp.load_state_dict(amp_state)
         self.optim.load_state_dict(state_dict)
 
 class EpochPool(object):

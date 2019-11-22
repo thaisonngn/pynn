@@ -1,22 +1,23 @@
-# Read a kaldi ark file in stream mode
+# Copyright 2019 Thai-Son Nguyen
+# Licensed under the Apache License, Version 2.0 (the "License")
 
 import random
 import struct
 import os
 import numpy as np
 import torch
-import torch.nn.functional as F
+
 from torch.nn.utils.rnn import pack_sequence
 
 from . import smart_open
  
-class KaldiStreamLoader(object):
+class ScpStreamReader(object):
 
     def __init__(self, scp_path, label_path=None, time_idx_path=None, sek=True, downsample=1,
                        sort_src=False, pack_src=False, max_len=10000, max_utt=4096, 
-                       mean_sub=False, spec_drop=False, spec_bar=2,
-                       time_stretch=False, time_win=10000, ts_static=False,
-                       aug_mix=True, sub_seq=0.25, ss_static=False, shuffle=False, fp16=False):
+                       mean_sub=False, zero_pad=0,
+                       spec_drop=False, spec_bar=2, time_stretch=False, time_win=10000,
+                       sub_seq=0.25, ss_static=False, shuffle=False, fp16=False):
         self.scp_path = scp_path     # path to the .scp file
         self.label_path = label_path # path to the label file
         self.time_idx_path = time_idx_path
@@ -27,14 +28,13 @@ class KaldiStreamLoader(object):
         self.pack_src = pack_src
         self.max_len = max_len
         self.sek = sek
-                
+
         self.mean_sub = mean_sub
+        self.zero_pad = zero_pad
         self.spec_drop = spec_drop
         self.spec_bar = spec_bar
         self.time_stretch = time_stretch
         self.time_win = time_win
-        self.ts_static = ts_static
-        self.aug_mix = aug_mix
         self.sub_seq = sub_seq
         self.ss_static = ss_static
         self.fp16 = fp16
@@ -87,7 +87,8 @@ class KaldiStreamLoader(object):
     def initialize(self):
         if self.scp_file is None:
             self.scp_file = [line.rstrip('\n') for line in smart_open(self.scp_path, 'r')]
-            self.scp_dir = os.path.dirname(self.scp_path)
+            path = os.path.dirname(self.scp_path)
+            self.scp_dir = path + '/' if path != '' else None
         self.scp_pos = 0
         if self.shuffle: random.shuffle(self.scp_file)
         
@@ -112,7 +113,8 @@ class KaldiStreamLoader(object):
         line = self.scp_file[self.scp_pos]
         utt_id, path_pos = line.replace('\n','').split(' ')
         path, pos = path_pos.split(':')
-        if not path.startswith('/'): path = self.scp_dir + '/' + path
+        if not path.startswith('/') and self.scp_dir is not None:
+            path = self.scp_dir + path
         self.scp_pos += 1
 
         ark_file = smart_open(path, 'rb')
@@ -131,6 +133,9 @@ class KaldiStreamLoader(object):
             utt_mat = np.array(utt_mat, dtype="float32")
             if self.fp16:
                 utt_mat = utt_mat.astype("float16")
+            if self.zero_pad > 0:
+                rows += self.zero_pad
+                utt_mat.resize(rows*cols)
             utt_mat = np.reshape(utt_mat, (rows, cols))
         else:
             print("Unsupported .ark file with %s format" % format); exit(1)
@@ -175,7 +180,7 @@ class KaldiStreamLoader(object):
         if self.sek and utt_lbl is not None:
             utt_lbl = [1] + [el+2 for el in utt_lbl] + [2]
         return utt_mat, utt_lbl
-    
+
     def next_partition(self):
         if self.end_reading:
             return 0
@@ -204,7 +209,7 @@ class KaldiStreamLoader(object):
     def sub_sequence_inst_(self, inst, tgt, utt_id, ratio):
         sx, fx = self.time_idx[utt_id]
         l = len(sx)        
-        if l <= 4 or random.random() > ratio:
+        if l < 4 or random.random() > ratio:
             return inst, tgt
         sid = random.randint(1, l//4)
         eid = random.randint(l*3//4, l-1)
@@ -221,7 +226,7 @@ class KaldiStreamLoader(object):
         l = len(sx)
         
         if l < 4:
-            #if random.random() < ratio: tgt = None
+            if random.random() < ratio: tgt = None
             return inst, tgt
 
         if random.random() > ratio:
@@ -249,7 +254,7 @@ class KaldiStreamLoader(object):
         l = len(sx)
 
         if l < 4:
-            #if random.random() < ratio: tgt = None
+            if random.random() < ratio: tgt = None
             return inst, tgt
 
         if random.random() > ratio:
@@ -270,7 +275,6 @@ class KaldiStreamLoader(object):
                 self.time_cache[mode][utt_id] = idx
             else:
                 idx = self.time_cache[mode][utt_id]
-
             tgt = tgt[sx[idx]:]
             inst = inst[fx[idx]:, :]
         elif mode == 2:
@@ -304,27 +308,11 @@ class KaldiStreamLoader(object):
         return inst
 
     def time_stretch_inst(self, inst, low=0.8, high=1.25, win=10000):
-        if self.ss_static:
-            return self.time_stretch_inst_static(inst, low, high, win)
-                
         time_len = inst.shape[0]
         ids = None
         for i in range((time_len // win) + 1):
             s = random.uniform(low, high)
             e = min(time_len, win*(i+1))          
-            r = np.arange(win*i, e-1, s, dtype=np.float32)
-            r = np.round(r).astype(np.int32)
-            ids = r if ids is None else np.concatenate((ids, r))
-        return inst[ids]
-
-    def time_stretch_inst_static(self, inst, low=0.8, high=1.25, win=10000):
-        if random.random() < 0.3: return inst
-
-        time_len = inst.shape[0]
-        ids = None
-        for i in range((time_len // win) + 1):
-            s = low if random.random() < 0.5 else high
-            e = min(time_len, win*(i+1))
             r = np.arange(win*i, e-1, s, dtype=np.float32)
             r = np.round(r).astype(np.int32)
             ids = r if ids is None else np.concatenate((ids, r))
@@ -339,13 +327,10 @@ class KaldiStreamLoader(object):
      
     def augment_src(self, src):
         insts = []
-        ar = random.random()
         for inst in src:
-            if ar >= 0.5 or self.aug_mix:
-                inst = self.time_stretch_inst(inst, win=self.time_win) if self.time_stretch else inst
+            inst = self.time_stretch_inst(inst, win=self.time_win) if self.time_stretch else inst
             inst = self.mean_sub_inst(inst) if self.mean_sub else inst
-            if ar < 0.5 or self.aug_mix:
-                inst = self.timefreq_drop_inst(inst, num=self.spec_bar) if self.spec_drop else inst            
+            inst = self.timefreq_drop_inst(inst, num=self.spec_bar) if self.spec_drop else inst            
             inst = self.down_sample_inst(inst, self.downsample) if self.downsample > 1 else inst
             insts.append(inst)
         return insts
@@ -386,11 +371,13 @@ class KaldiStreamLoader(object):
         tgt = self.label[self.utt_index:self.utt_index+batch_size]
 
         src = self.augment_src(src)
-        lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
-        src, tgt = zip(*lst)
+        if self.sort_src or self.pack_src:
+            lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
+            src, tgt = zip(*lst)
+
         self.utt_index += len(src)
 
-        src = self.collate_src(src)
+        src = self.collate_src(src) if not self.pack_src else self.collate_src_pack(src)
         tgt = self.collate_tgt(tgt)
         return (*src, *tgt)
 
@@ -420,7 +407,7 @@ class KaldiStreamLoader(object):
         return (*src, *tgt, seqs, tgs, last)
         
 
-class KaldiBatchLoader(KaldiStreamLoader):
+class ScpBatchReader(ScpStreamReader):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
