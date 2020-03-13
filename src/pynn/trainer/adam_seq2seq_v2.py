@@ -16,14 +16,40 @@ import torch.nn.functional as F
 from . import EpochPool, load_last_chkpt, save_last_chkpt
 from . import ScheduledOptim, cal_ce_loss
 
+def time_constraint_loss(attn, mask, sid, eid):
+    T = attn.size(-1)    
+    rg = torch.arange(T, device=mask.device).view(1, 1, 1, -1)
+    rg = rg.expand(attn.size(0), attn.size(1), attn.size(2), -1)
+
+    sid = sid.unsqueeze(1).unsqueeze(-1).expand(-1, -1, -1, T)    
+    sid = sid.gt(rg)
+
+    eid = eid.unsqueeze(1).unsqueeze(-1).expand(-1, -1, -1, T)
+    eid = eid.le(rg)
+    
+    mask = mask.unsqueeze(1).unsqueeze(2)
+    mask = mask.expand(-1, attn.size(1), attn.size(2), -1)
+    #tid = (sid + eid + mask).gt(1)
+    tid = (eid + mask).gt(1) # fwd
+    #tid = (sid + mask).gt(1) # bwd
+
+    attn = attn.masked_select(tid)
+    #loss = torch.log(attn+0.1).sum() / tid.size(1)
+    #loss = torch.log(attn+0.1).sum() / (tid.size(1)*tid.size(-1))
+    #loss = attn.sum() / (tid.size(1)*tid.size(-1))
+    loss = attn.sum()
+
+    return loss
+
 def train_epoch(model, data, opt, eps, device, batch_input, batch_update, n_print,
-                teacher_force=1., loss_norm=False, grad_norm=True, grad_clip=0.):
+                loss_norm=False, grad_norm=True, grad_clip=0.):
     ''' Epoch operation in training phase'''
     model.train()
     
     total_loss = 0.; n_word_total = 0; n_word_correct = 0
     prints = n_print
-    p_loss = 0.; p_total = 0; p_correct = 0
+    p_loss = 0.; p_total = 0; p_correct = 0;
+    a_loss = 0.
 
     updates = 0
     n_seq = 0
@@ -34,28 +60,21 @@ def train_epoch(model, data, opt, eps, device, batch_input, batch_update, n_prin
         # prepare data
         batch = data.next(batch_input)
         seqs, last = batch[-2:]
+        src_seq, src_mask, tgt_seq, sid, eid = map(lambda x: x.to(device), batch[:-2])
 
-        src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), batch[:-2])
         gold = tgt_seq[:, 1:]
         tgt_seq = tgt_seq[:, :-1]
         n_seq += seqs
 
         try:
-            # teacher forcing or sample
-            sampling = teacher_force < 1.
-            if sampling:
-                pred, src_seq, src_mask = model(src_seq, src_mask, tgt_seq)
-                pred = torch.argmax(pred, dim=-1).detach()
-                sample = pred.clone().bernoulli_(1. - teacher_force)
-                pred = pred * sample
-                pred = torch.cat((tgt_seq[:, :1], pred[:, :-1]), dim=1)
-                pred = pred * tgt_seq.gt(2).type(pred.dtype)
-                tgt_seq = tgt_seq * pred.eq(0).type(pred.dtype) + pred
             # forward
-            pred = model(src_seq, src_mask, tgt_seq, encoding=not sampling)[0]
+            pred, attn, masks = model.attend(src_seq, src_mask, tgt_seq)
             # backward
             pred = pred.view(-1, pred.size(2))
             loss, loss_data, n_correct, n_total = cal_ce_loss(pred, gold, eps)
+            attn_loss = time_constraint_loss(attn, masks, sid, eid)
+
+            loss += attn_loss*0.2
             if torch.isnan(loss.data):
                 print("    inf loss at %d" % n_seq); continue
             if loss_norm: loss = loss.div(n_total)
@@ -80,15 +99,18 @@ def train_epoch(model, data, opt, eps, device, batch_input, batch_update, n_prin
         total_loss += loss_data
 
         n_word_total += n_total;  n_word_correct += n_correct
-        p_loss += loss_data; p_total += n_total; p_correct += n_correct
+        p_loss += loss_data; p_total += n_total; p_correct += n_correct;
+        a_loss += attn_loss.data.item()
         
         if n_seq > prints:
             ppl = math.exp(min(p_loss/p_total, 100))
             pred = p_correct * 1. / p_total
-            print('    Seq: {:6d}, lr: {:.7f}, ppl: {:9.4f}, '\
-                  'updates: {:6d}, correct: {:.2f}'.format(n_seq, opt.lr, ppl, opt.steps, pred))
+            a_loss /= p_total
+            print('    Seq: {:6d}, lr: {:.7f}, ppl: {:9.4f}, attn-loss: {:.3f}, '\
+                    'updates: {:6d}, correct: {:.2f}'.format(n_seq, opt.lr, ppl, a_loss, opt.steps, pred))
             prints += n_print
             p_loss = 0.; p_total = 0; p_correct = 0
+            a_loss = 0.
     
     loss_per_word = total_loss / n_word_total
     accuracy = n_word_correct / n_word_total
@@ -108,7 +130,7 @@ def eval_epoch(model, data, device, batch_input):
         while data.available():
             # prepare data
             batch = data.next(batch_input)
-            src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), batch[:-2])
+            src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), batch[:-4])
             gold = tgt_seq[:, 1:]
             tgt_seq = tgt_seq[:, :-1]
 
@@ -132,9 +154,7 @@ def train_model(model, datasets, epochs, device, cfg,
 
     model_path = cfg['model_path']
     lr = cfg['lr']
-    eps = cfg['label_smooth']
-    teacher_force = cfg['teacher_force']
-    weight_decay = cfg['weight_decay']
+    eps = cfg['smooth']
 
     n_warmup = cfg['n_warmup']
     n_const = cfg['n_const']
@@ -143,7 +163,7 @@ def train_model(model, datasets, epochs, device, cfg,
     b_update = cfg['b_update']
     
     opt = ScheduledOptim(512, n_warmup, n_const, lr)
-    model = opt.initialize(model, weight_decay=weight_decay, fp16=fp16)
+    model = opt.initialize(model, fp16=fp16)
 
     tr_data, cv_dat = datasets
     pool = EpochPool(5)
@@ -155,7 +175,7 @@ def train_model(model, datasets, epochs, device, cfg,
         
         start = time.time()
         tr_loss, tr_accu = train_epoch(model, tr_data, opt, eps, device, b_input, b_update, n_print,
-                                       teacher_force=teacher_force, loss_norm=loss_norm, grad_norm=grad_norm)
+                                       loss_norm=loss_norm, grad_norm=grad_norm)
             
         print('  (Training)   ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '\
               'elapse: {elapse:3.3f} min'.format(

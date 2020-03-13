@@ -17,7 +17,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from pynn.util.decoder import Decoder
+from pynn.decoder.seq2seq import beam_search
+from pynn.util import write_ctm, write_text
 from pynn.io.kaldi_seq import ScpStreamReader
 from pynn.net.tf import Transformer
 from pynn.net.seq2seq import Seq2Seq
@@ -36,6 +37,7 @@ parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
 parser.add_argument('--batch-size', help='batch size', type=int, default=32)
 parser.add_argument('--beam-size', help='beam size', type=int, default=10)
 parser.add_argument('--max-len', help='max len', type=int, default=200)
+parser.add_argument('--len-norm', help='length normalization', action='store_true')
 parser.add_argument('--output', help='output file', type=str, default='hypos/H_1_LV.ctm')
 parser.add_argument('--format', help='output format', type=str, default='ctm')
 parser.add_argument('--space', help='space token', type=str, default='<space>')
@@ -85,13 +87,13 @@ if __name__ == '__main__':
         if len(utts) == 0: break
         with torch.no_grad():
             src_seq, src_mask = src_seq.to(device), src_mask.to(device)
-            hypos, scores = Decoder.beam_search(model, src_seq, src_mask,
-                                            device, args.beam_size, args.max_len)
+            hypos, scores = beam_search(model, src_seq, src_mask, device, args.beam_size,
+                                args.max_len, len_norm=args.len_norm)
             hypos, scores = hypos.tolist(), scores.tolist()
             if args.format == 'ctm':
-                Decoder.write_to_ctm(hypos, scores, fout, utts, dic, word_dic, args.space)
+                write_ctm(hypos, scores, fout, utts, dic, word_dic, args.space)
             else:
-                Decoder.write_to_text(hypos, scores, fout, utts, dic, args.space)
+                write_text(hypos, scores, fout, utts, dic, args.space)
         
     fout.close()
     time_elapsed = time.time() - since

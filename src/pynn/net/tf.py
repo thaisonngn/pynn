@@ -146,6 +146,7 @@ class Decoder(nn.Module):
         dec_out = self.pe(self.emb(tgt_seq))
         dec_out = self.emb_drop(dec_out)
 
+        attn = None
         nl = len(self.layer_stack)
         for l, dec_layer in enumerate(self.layer_stack):
             scale = 1.
@@ -187,11 +188,13 @@ class Transformer(nn.Module):
             dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop,
             shared_emb=shared_emb)
 
-    def forward(self, src_seq, src_mask, tgt_seq):
-        enc_out, src_mask = self.encoder(src_seq, src_mask)
+    def forward(self, src_seq, src_mask, tgt_seq, encoding=True):
+        if encoding:
+            enc_out, src_mask = self.encoder(src_seq, src_mask)
+        else:
+            enc_out = src_seq
         dec_out = self.decoder(tgt_seq, enc_out, src_mask)[0]
-        
-        return dec_out.view(-1, dec_out.size(2))
+        return dec_out, enc_out, src_mask
         
     def encode(self, src_seq, src_mask):
         return self.encoder(src_seq, src_mask)
@@ -199,7 +202,7 @@ class Transformer(nn.Module):
     def decode(self, enc_out, src_mask, tgt_seq):
         dec_out = self.decoder(tgt_seq, enc_out, src_mask)[0]
         dec_out = dec_out[:,-1,:].squeeze(1)
-        return torch.log_softmax(dec_out, -1)
+        return torch.log_softmax(dec_out, -1), None
         
     def converage(self, enc_out, src_mask, tgt_seq, alpha=0.05):
         attn =  dec_out = self.decoder(tgt_seq, enc_out, src_mask)[1]

@@ -37,9 +37,11 @@ parser.add_argument('--freq-kn', help='frequency kernel', type=int, default=3)
 parser.add_argument('--freq-std', help='frequency stride', type=int, default=2)
 parser.add_argument('--no-lm', help='not combine with LM in decoder', action='store_true')
 parser.add_argument('--shared-emb', help='sharing decoder embedding', action='store_true')
-parser.add_argument('--smooth', type=float, default=0.1)
 parser.add_argument('--dropout', type=float, default=0.2)
 parser.add_argument('--emb-drop', type=float, default=0.0)
+parser.add_argument('--label-smooth', type=float, default=0.1)
+parser.add_argument('--weight-decay', type=float, default=0.0)
+parser.add_argument('--teacher-force', type=float, default=1.0)
 
 parser.add_argument('--max-len', help='max sequence length', type=int, default=5000)
 parser.add_argument('--max-utt', help='max utt per partition', type=int, default=4096)
@@ -105,7 +107,8 @@ if __name__ == '__main__':
                                   sort_src=True, max_len=args.max_len, max_utt=args.max_utt,
                                   mean_sub=args.mean_sub, zero_pad=args.zero_pad, fp16=args.fp16)
 
-    cfg = {'model_path': args.model_path, 'lr': args.lr, 'smooth': args.smooth,
+    cfg = {'model_path': args.model_path, 'lr': args.lr, 'label_smooth': args.label_smooth,
+           'weight_decay': args.weight_decay, 'teacher_force': args.teacher_force,
            'n_warmup': args.n_warmup, 'n_const': args.n_const,
            'b_input': args.b_input, 'b_update': args.b_update, 'n_print': args.n_print}
     datasets = (tr_reader, cv_reader)

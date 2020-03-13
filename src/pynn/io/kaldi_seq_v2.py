@@ -35,6 +35,7 @@ class ScpStreamReader(object):
         self.spec_bar = spec_bar
         self.time_stretch = time_stretch
         self.time_win = time_win
+        self.ts_scale = 1.
         self.sub_seq = sub_seq
         self.ss_static = ss_static
         self.fp16 = fp16
@@ -68,10 +69,17 @@ class ScpStreamReader(object):
         for line in idx_file:
             tokens = line.split()
             utt_id = tokens[0]
-            token = [int(token) for token in tokens[1:]]
-            l = len(token) // 2
-            self.time_idx[utt_id] = (token[0:l], token[l:])
-        self.time_cache = ({}, {}, {})
+            tokens = [int(token) for token in tokens[1:]]
+            l = len(tokens) // 2
+            j = 0
+            sid, eid = [], []
+            for i in range(len(self.label_dic[utt_id])):
+                if j < l-1 and i >= tokens[j+1]: j += 1
+                #eid.append(10000 if j == l-1 else (tokens[l+j+1]//4+1))
+                eid.append(10000 if j == l-1 else (tokens[l+j+1]//4+8))
+                sid.append(tokens[l+j]//4)
+
+            self.time_idx[utt_id] = (sid, eid)
 
     def _read_string(self, ark_file):
         s = ''
@@ -105,6 +113,7 @@ class ScpStreamReader(object):
         else:
             self.utt_count = 0
             self.end_reading = False
+        self.ts_scale = 1.
 
     # read the feature matrix of the next utterance
     def read_next_utt(self):
@@ -173,12 +182,16 @@ class ScpStreamReader(object):
             return utt_mat, None
 
         utt_lbl = self.label_dic[utt_id]
-
-        if self.time_idx is not None and self.sub_seq > 0.:
-            utt_mat, utt_lbl = self.sub_sequence_inst(utt_mat, utt_lbl, utt_id, self.sub_seq)
-        
         if self.sek and utt_lbl is not None:
             utt_lbl = [1] + [el+2 for el in utt_lbl] + [2]
+        
+        if self.time_idx is None:
+            tid = (None, None)
+        else:
+            tid = self.time_idx[utt_id]
+            
+        utt_lbl = (utt_lbl, tid)
+
         return utt_mat, utt_lbl
 
     def next_partition(self):
@@ -206,90 +219,6 @@ class ScpStreamReader(object):
 
         return self.utt_index < self.utt_count
 
-    def sub_sequence_inst_(self, inst, tgt, utt_id, ratio):
-        sx, fx = self.time_idx[utt_id]
-        l = len(sx)        
-        if l < 4 or random.random() > ratio:
-            return inst, tgt
-        sid = random.randint(1, l//4)
-        eid = random.randint(l*3//4, l-1)
-        tgt = tgt[sx[sid]:sx[eid]-1]
-        inst = inst[fx[sid]:fx[eid]-1, :]
- 
-        return inst, tgt
-
-    def sub_sequence_inst(self, inst, tgt, utt_id, ratio):
-        if self.ss_static:
-            return self.sub_sequence_inst_static(inst, tgt, utt_id, ratio)
-            
-        sx, fx = self.time_idx[utt_id] 
-        l = len(sx)
-        
-        if l < 4:
-            if random.random() < ratio: tgt = None
-            return inst, tgt
-
-        if random.random() > ratio:
-            return inst, tgt
-
-        mode = random.randint(0, 2)
-        if mode == 0:
-            idx = random.randint(l//2, l-1)
-            tgt = tgt[0: sx[idx]-1]
-            inst = inst[0:fx[idx]-1, :]
-        elif mode == 1:
-            idx = random.randint(1, l//2)
-            tgt = tgt[sx[idx]:]
-            inst = inst[fx[idx]:, :]
-        elif mode == 2:
-            sid = random.randint(1, l//4)
-            eid = random.randint(l*3//4, l-1) 
-            tgt = tgt[sx[sid]:sx[eid]-1]
-            inst = inst[fx[sid]:fx[eid]-1, :]
-
-        return inst, tgt
-
-    def sub_sequence_inst_static(self, inst, tgt, utt_id, ratio):
-        sx, fx = self.time_idx[utt_id] 
-        l = len(sx)
-
-        if l < 4:
-            if random.random() < ratio: tgt = None
-            return inst, tgt
-
-        if random.random() > ratio:
-            return inst, tgt
-
-        mode = random.randint(0, 2)
-        if mode == 0:
-            if not utt_id in self.time_cache[mode]:
-                idx = random.randint(l//2, l-1)
-                self.time_cache[mode][utt_id] = idx
-            else:
-                idx = self.time_cache[mode][utt_id]
-            tgt = tgt[0: sx[idx]-1]
-            inst = inst[0:fx[idx]-1, :]
-        elif mode == 1:
-            if not utt_id in self.time_cache[mode]:
-                idx = random.randint(1, l//2)
-                self.time_cache[mode][utt_id] = idx
-            else:
-                idx = self.time_cache[mode][utt_id]
-            tgt = tgt[sx[idx]:]
-            inst = inst[fx[idx]:, :]
-        elif mode == 2:
-            if not utt_id in self.time_cache[mode]:
-                sid = random.randint(1, l//4)
-                eid = random.randint(l*3//4, l-1)        
-                self.time_cache[mode][utt_id] = (sid, eid)
-            else:
-                sid, eid = self.time_cache[mode][utt_id]
-
-            tgt = tgt[sx[sid]:sx[eid]-1]
-            inst = inst[fx[sid]:fx[eid]-1, :]
-
-        return inst, tgt
-
     def timefreq_drop_inst(self, inst, num=2, time_drop=0.25, freq_drop=0.25):
         time_num, freq_num = inst.shape
         freq_num = freq_num
@@ -316,6 +245,7 @@ class ScpStreamReader(object):
             r = np.arange(win*i, e-1, s, dtype=np.float32)
             r = np.round(r).astype(np.int32)
             ids = r if ids is None else np.concatenate((ids, r))
+        self.ts_scale = s
         return inst[ids]
 
     def mean_sub_inst(self, inst):
@@ -359,12 +289,25 @@ class ScpStreamReader(object):
                     
         return inputs, masks
 
-    def collate_tgt(self, tgt):
+    def collate_tgt(self, insts):
+        tgt, tid = zip(*insts)
+
         max_len = max(len(inst) for inst in tgt)
         labels = np.array([inst + [0] * (max_len - len(inst)) for inst in tgt])
         labels = torch.LongTensor(labels)
  
-        return labels, 
+        max_len -= 1
+        sid, eid = zip(*tid)
+
+        if None not in sid:
+            sid = np.array([inst + [0] * (max_len - len(inst)) for inst in sid])
+            sid = torch.LongTensor(sid * self.ts_scale + 0.5)
+                
+        if None not in eid:
+            eid = np.array([inst + [10000] * (max_len - len(inst)) for inst in eid])
+            eid = torch.LongTensor(eid * self.ts_scale + 0.5)
+
+        return labels, sid, eid
     
     def next_batch(self, batch_size=16):
         src = self.feat[self.utt_index:self.utt_index+batch_size]
@@ -389,7 +332,6 @@ class ScpStreamReader(object):
             max_l = max(max_l, self.feat[j].shape[0])
             if j > i and max_l*(j-i+1) > batch_input: break
             j += 1
-        j = ((j-i)//4 * 4 + i) if j > (i+4) else j
         last = (j==l)
 
         src, tgt = self.feat[self.utt_index:j], self.label[self.utt_index:j]

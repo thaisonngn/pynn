@@ -26,7 +26,8 @@ class Hybrid(nn.Module):
     def forward(self, inputs, masks, targets):
         enc_out, masks = self.encoder(inputs, masks)
         logit = self.decoder(targets, enc_out, masks)[0]
-        return logit.view(-1, logit.size(2))
+        #return logit.view(-1, logit.size(2))
+        return logit
 
     def encode(self, inputs, masks):
         return self.encoder(inputs, masks)

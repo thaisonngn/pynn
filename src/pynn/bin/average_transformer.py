@@ -23,7 +23,6 @@ parser.add_argument('--n-dec', type=int, default=4)
 parser.add_argument('--d-input', type=int, default=80)
 parser.add_argument('--d-model', type=int, default=512)
 parser.add_argument('--d-inner-hid', type=int, default=1024)
-parser.add_argument('--d-k', type=int, default=64)
 
 parser.add_argument('--time-ds', help='downsample in time axis', type=int, default=1)
 parser.add_argument('--use-cnn', help='use CNN filters', action='store_true')
@@ -43,7 +42,6 @@ if __name__ == '__main__':
     n_enc_head = args.n_head if args.n_enc_head==0 else args.n_enc_head
     m_params = {'n_vocab':args.n_classes,
         'd_input': args.d_input,
-        'd_k': args.d_k,
         'd_model': args.d_model,
         'd_inner': args.d_inner_hid,
         'n_enc': args.n_enc,

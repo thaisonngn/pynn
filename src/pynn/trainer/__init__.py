@@ -23,9 +23,9 @@ class ScheduledOptim():
         else:
             self.init_lr = d_model**(-0.5) * self.lr
 
-    def initialize(self, model, betas=(0.9, 0.98), eps=1e-09, fp16=False):
+    def initialize(self, model, betas=(0.9, 0.98), eps=1e-09, weight_decay=0, fp16=False):
         self.params = filter(lambda x: x.requires_grad, model.parameters())
-        self.optim = optim.Adam(self.params, betas=betas, eps=eps)
+        self.optim = optim.Adam(self.params, betas=betas, eps=eps, weight_decay=weight_decay)
         if fp16:
             from apex import amp
             model, self.optim = amp.initialize(model, self.optim, opt_level="O2")
@@ -109,7 +109,7 @@ def cal_ce_loss(pred, gold, eps=0.0):
     loss_data = nll_loss.data.item()
     
     if eps > 0.:
-        smooth_loss = -lprobs.sum(dim=-1, keepdim=True)[non_pad_mask]    
+        smooth_loss = -lprobs.sum(dim=-1, keepdim=True)[non_pad_mask]
         smooth_loss = smooth_loss.sum()
         eps_i =  eps / (lprobs.size(-1) - 2)
         loss = (1. - eps) * nll_loss + eps_i * smooth_loss
@@ -119,8 +119,9 @@ def cal_ce_loss(pred, gold, eps=0.0):
     lprobs = lprobs.argmax(dim=-1)
     n_correct = lprobs.eq(gtruth)[non_pad_mask]
     n_correct = n_correct.sum().item()
+    n_total = non_pad_mask.sum().item()
     
-    return loss, loss_data, n_correct
+    return loss, loss_data, n_correct, n_total
 
 def freeze_model(layer):
     for param in layer.parameters():
