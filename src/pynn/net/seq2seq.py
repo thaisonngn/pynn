@@ -32,7 +32,7 @@ class Encoder(nn.Module):
 
     def rnn_fwd(self, seq, mask, hid):
         if mask is not None:
-            lengths = mask.sum(-1)
+            lengths = mask.sum(-1); #lengths[0] = mask.size(1)
             seq = pack_padded_sequence(seq, lengths, batch_first=True)    
             seq, hid = self.rnn(seq, hid)
             seq = pad_packed_sequence(seq, batch_first=True)[0]
@@ -70,7 +70,7 @@ class Encoder(nn.Module):
 
         seq, hid = self.rnn_fwd(seq, mask, hid) \
                 if self.incl_win==0 else self.rnn_fwd_incl(seq, mask, hid)
-        
+ 
         if not self.unidirect:
             hidden_size = seq.size(2) // 2
             seq = seq[:, :, :hidden_size] + seq[:, :, hidden_size:]
@@ -106,14 +106,14 @@ class Decoder(nn.Module):
         dec_emb = self.emb_drop(dec_emb)
 
         if dec_seq.size(0) > 1 and dec_seq.size(1) > 1:
-            lengths = dec_seq.gt(0).sum(-1)
+            lengths = dec_seq.gt(0).sum(-1); #lengths[0] = dec_seq.size(1)
             dec_in = pack_padded_sequence(dec_emb, lengths, batch_first=True, enforce_sorted=False)
             dec_out, hid = self.lstm(dec_in, hid)
             dec_out = pad_packed_sequence(dec_out, batch_first=True)[0]
         else:
             dec_out, hid = self.lstm(dec_emb, hid)
 
-        lt = dec_seq.size(1)
+        lt = dec_out.size(1)
         attn_mask = enc_mask.eq(0).unsqueeze(1).expand(-1, lt, -1)
         
         context, attn = self.attn(dec_out, enc_out, mask=attn_mask)

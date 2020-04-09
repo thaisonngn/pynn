@@ -13,14 +13,12 @@ from . import smart_open
  
 class ScpStreamReader(object):
 
-    def __init__(self, scp_path, label_path=None, time_idx_path=None, sek=True, downsample=1,
+    def __init__(self, scp_path, label_path=None, sek=True, downsample=1,
                        sort_src=False, pack_src=False, max_len=10000, max_utt=4096, 
-                       mean_sub=False, zero_pad=0,
                        spec_drop=False, spec_bar=2, time_stretch=False, time_win=10000,
-                       sub_seq=0.25, ss_static=False, shuffle=False, fp16=False):
+                       mean_sub=False, zero_pad=0, shuffle=False, fp16=False):
         self.scp_path = scp_path     # path to the .scp file
         self.label_path = label_path # path to the label file
-        self.time_idx_path = time_idx_path
 
         self.downsample = downsample
         self.shuffle = shuffle
@@ -35,8 +33,6 @@ class ScpStreamReader(object):
         self.spec_bar = spec_bar
         self.time_stretch = time_stretch
         self.time_win = time_win
-        self.sub_seq = sub_seq
-        self.ss_static = ss_static
         self.fp16 = fp16
 
         self.scp_dir = ''
@@ -49,7 +45,6 @@ class ScpStreamReader(object):
         self.label = []
         # store all label in a dictionary
         self.label_dic = None
-        self.time_idx = None
         self.end_reading = False
 
     # read the feature matrix of the next utterance
@@ -61,17 +56,6 @@ class ScpStreamReader(object):
             utt_id = tokens[0]
             if utt_id == '' or utt_id is None: continue
             self.label_dic[utt_id] = [int(token) for token in tokens[1:]]
-
-    def read_time_index(self):
-        self.time_idx = {}
-        idx_file = smart_open(self.time_idx_path, 'r')
-        for line in idx_file:
-            tokens = line.split()
-            utt_id = tokens[0]
-            token = [int(token) for token in tokens[1:]]
-            l = len(token) // 2
-            self.time_idx[utt_id] = (token[0:l], token[l:])
-        self.time_cache = ({}, {}, {})
 
     def _read_string(self, ark_file):
         s = ''
@@ -95,9 +79,6 @@ class ScpStreamReader(object):
         if self.label_path is not None and self.label_dic is None:
             self.read_all_label()
             print("Loaded labels of %d utterances" % len(self.label_dic))
-
-        if self.time_idx_path is not None and self.time_idx is None:
-            self.read_time_index()
 
         self.utt_index = 0
         if self.max_utt < 0 and len(self.feat) > 0:
@@ -125,14 +106,15 @@ class ScpStreamReader(object):
             print("Input .ark file is not binary"); exit(1)
         format = self._read_string(ark_file)
         
-        if format == "FM":
+        if format == "FM" or format == "HM":
             rows = self._read_integer(ark_file)
             cols = self._read_integer(ark_file) 
             #print rows, cols
-            utt_mat = struct.unpack("<%df" % (rows * cols), ark_file.read(rows*cols*4))
-            utt_mat = np.array(utt_mat, dtype="float32")
-            if self.fp16:
-                utt_mat = utt_mat.astype("float16")
+            fm, dt, sz = ("<%df", np.float32, 4) if format == "FM" else ("<%de", np.float16, 2)
+            utt_mat = struct.unpack(fm % (rows * cols), ark_file.read(rows*cols*sz))
+            utt_mat = np.array(utt_mat, dtype=dt)
+            if self.fp16 and dt == np.float32:
+                utt_mat = utt_mat.astype(np.float16)
             if self.zero_pad > 0:
                 rows += self.zero_pad
                 utt_mat.resize(rows*cols)
@@ -174,9 +156,6 @@ class ScpStreamReader(object):
 
         utt_lbl = self.label_dic[utt_id]
 
-        if self.time_idx is not None and self.sub_seq > 0.:
-            utt_mat, utt_lbl = self.sub_sequence_inst(utt_mat, utt_lbl, utt_id, self.sub_seq)
-        
         if self.sek and utt_lbl is not None:
             utt_lbl = [1] + [el+2 for el in utt_lbl] + [2]
         return utt_mat, utt_lbl
@@ -205,90 +184,6 @@ class ScpStreamReader(object):
             self.utt_index = 0
 
         return self.utt_index < self.utt_count
-
-    def sub_sequence_inst_(self, inst, tgt, utt_id, ratio):
-        sx, fx = self.time_idx[utt_id]
-        l = len(sx)        
-        if l < 4 or random.random() > ratio:
-            return inst, tgt
-        sid = random.randint(1, l//4)
-        eid = random.randint(l*3//4, l-1)
-        tgt = tgt[sx[sid]:sx[eid]-1]
-        inst = inst[fx[sid]:fx[eid]-1, :]
- 
-        return inst, tgt
-
-    def sub_sequence_inst(self, inst, tgt, utt_id, ratio):
-        if self.ss_static:
-            return self.sub_sequence_inst_static(inst, tgt, utt_id, ratio)
-            
-        sx, fx = self.time_idx[utt_id] 
-        l = len(sx)
-        
-        if l < 4:
-            if random.random() < ratio: tgt = None
-            return inst, tgt
-
-        if random.random() > ratio:
-            return inst, tgt
-
-        mode = random.randint(0, 2)
-        if mode == 0:
-            idx = random.randint(l//2, l-1)
-            tgt = tgt[0: sx[idx]-1]
-            inst = inst[0:fx[idx]-1, :]
-        elif mode == 1:
-            idx = random.randint(1, l//2)
-            tgt = tgt[sx[idx]:]
-            inst = inst[fx[idx]:, :]
-        elif mode == 2:
-            sid = random.randint(1, l//4)
-            eid = random.randint(l*3//4, l-1) 
-            tgt = tgt[sx[sid]:sx[eid]-1]
-            inst = inst[fx[sid]:fx[eid]-1, :]
-
-        return inst, tgt
-
-    def sub_sequence_inst_static(self, inst, tgt, utt_id, ratio):
-        sx, fx = self.time_idx[utt_id] 
-        l = len(sx)
-
-        if l < 4:
-            if random.random() < ratio: tgt = None
-            return inst, tgt
-
-        if random.random() > ratio:
-            return inst, tgt
-
-        mode = random.randint(0, 2)
-        if mode == 0:
-            if not utt_id in self.time_cache[mode]:
-                idx = random.randint(l//2, l-1)
-                self.time_cache[mode][utt_id] = idx
-            else:
-                idx = self.time_cache[mode][utt_id]
-            tgt = tgt[0: sx[idx]-1]
-            inst = inst[0:fx[idx]-1, :]
-        elif mode == 1:
-            if not utt_id in self.time_cache[mode]:
-                idx = random.randint(1, l//2)
-                self.time_cache[mode][utt_id] = idx
-            else:
-                idx = self.time_cache[mode][utt_id]
-            tgt = tgt[sx[idx]:]
-            inst = inst[fx[idx]:, :]
-        elif mode == 2:
-            if not utt_id in self.time_cache[mode]:
-                sid = random.randint(1, l//4)
-                eid = random.randint(l*3//4, l-1)        
-                self.time_cache[mode][utt_id] = (sid, eid)
-            else:
-                sid, eid = self.time_cache[mode][utt_id]
-
-            tgt = tgt[sx[sid]:sx[eid]-1]
-            inst = inst[fx[sid]:fx[eid]-1, :]
-
-        return inst, tgt
 
     def timefreq_drop_inst(self, inst, num=2, time_drop=0.25, freq_drop=0.25):
         time_num, freq_num = inst.shape
@@ -328,8 +223,8 @@ class ScpStreamReader(object):
     def augment_src(self, src):
         insts = []
         for inst in src:
-            inst = self.time_stretch_inst(inst, win=self.time_win) if self.time_stretch else inst
             inst = self.mean_sub_inst(inst) if self.mean_sub else inst
+            inst = self.time_stretch_inst(inst, win=self.time_win) if self.time_stretch else inst
             inst = self.timefreq_drop_inst(inst, num=self.spec_bar) if self.spec_drop else inst            
             inst = self.down_sample_inst(inst, self.downsample) if self.downsample > 1 else inst
             insts.append(inst)
@@ -365,6 +260,17 @@ class ScpStreamReader(object):
         labels = torch.LongTensor(labels)
  
         return labels, 
+
+    def collate(self, src, tgt):
+        src = self.augment_src(src)
+        if self.sort_src or self.pack_src:
+            lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
+            src, tgt = zip(*lst)
+
+        src = self.collate_src(src) if not self.pack_src else self.collate_src_pack(src)
+        tgt = self.collate_tgt(tgt)
+
+        return src, tgt
     
     def next_batch(self, batch_size=16):
         src = self.feat[self.utt_index:self.utt_index+batch_size]
@@ -421,7 +327,7 @@ class ScpBatchReader(ScpStreamReader):
         feats, labels = [], []
 
         num = 0
-        while num < self.max_utt:
+        while self.max_utt < 0 or num < self.max_utt:
             if self.scp_pos >= len(self.scp_file):
                 self.end_reading = True; break
 

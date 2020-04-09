@@ -6,6 +6,7 @@ import os
 import copy
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
@@ -30,6 +31,8 @@ class ScheduledOptim():
             from apex import amp
             model, self.optim = amp.initialize(model, self.optim, opt_level="O2")
             self.amp = amp
+        if torch.cuda.device_count() > 1:
+            model = nn.DataParallel(model) #enabling data parallelism
         return model
 
     def backward(self, loss):

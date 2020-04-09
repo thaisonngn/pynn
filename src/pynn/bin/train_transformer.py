@@ -78,7 +78,6 @@ if __name__ == '__main__':
 
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-    print('Using device: ' + str(device))
 
     n_enc_head = args.n_head if args.n_enc_head==0 else args.n_enc_head
     model = Transformer(

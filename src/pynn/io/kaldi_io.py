@@ -33,9 +33,11 @@ def write_array(fd, array):
     assert isinstance(array, np.ndarray), type(array)
     fd.write(b'\0B')
     size += 2
-    if array.dtype == np.float32:
+    dt = array.dtype
+    if dt == np.float32 or dt == np.float16:
+        atype = b'FM ' if dt == np.float32 else b'HM '
         if len(array.shape) == 2:
-            fd.write(b'FM ')
+            fd.write(atype)
             size += 3
             fd.write(b'\4')
             size += 1
@@ -49,5 +51,5 @@ def write_array(fd, array):
         fd.write(array.tobytes())
         size += array.nbytes
     else:
-        raise ValueError('Unsupported array type: {}'.format(array.dtype))
+        raise ValueError('Unsupported array type: {}'.format(dt))
     return size

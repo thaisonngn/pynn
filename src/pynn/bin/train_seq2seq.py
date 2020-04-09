@@ -20,7 +20,6 @@ parser.add_argument('--train-scp', help='path to train scp', required=True)
 parser.add_argument('--train-target', help='path to train target', required=True)
 parser.add_argument('--valid-scp', help='path to validation scp', required=True)
 parser.add_argument('--valid-target', help='path to validation target', required=True)
-parser.add_argument('--time-index', help='train time index', type=str, default=None)
 
 parser.add_argument('--n-classes', type=int, required=True)
 parser.add_argument('--n-head', type=int, default=8)
@@ -51,8 +50,6 @@ parser.add_argument('--spec-drop', help='argument inputs', action='store_true')
 parser.add_argument('--spec-bar', help='number of bars of spec-drop', type=int, default=2)
 parser.add_argument('--time-stretch', help='argument inputs', action='store_true')
 parser.add_argument('--time-win', help='time stretch window', type=int, default=10000)
-parser.add_argument('--subseq-ratio', type=float, default=0.0)
-parser.add_argument('--subseq-static', help='static subseq', action='store_true')
 parser.add_argument('--model-path', help='model saving path', default='model')
 
 parser.add_argument('--downsample', help='concated frames', type=int, default=1)
@@ -96,12 +93,11 @@ if __name__ == '__main__':
         emb_drop=args.emb_drop).to(device)
 
     ScpReader = ScpBatchReader if args.batch else ScpStreamReader
-    tr_reader = ScpReader(args.train_scp, args.train_target, args.time_index, downsample=args.downsample,
+    tr_reader = ScpReader(args.train_scp, args.train_target, downsample=args.downsample,
                                   sort_src=True, max_len=args.max_len, max_utt=args.max_utt,
                                   mean_sub=args.mean_sub, zero_pad=args.zero_pad,
                                   fp16=args.fp16, shuffle=args.shuffle,
                                   spec_drop=args.spec_drop, spec_bar=args.spec_bar,
-                                  sub_seq=args.subseq_ratio, ss_static=args.subseq_static,
                                   time_stretch=args.time_stretch, time_win=args.time_win)
     cv_reader = ScpStreamReader(args.valid_scp, args.valid_target, downsample=args.downsample,
                                   sort_src=True, max_len=args.max_len, max_utt=args.max_utt,
