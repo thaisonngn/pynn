@@ -103,7 +103,7 @@ class ScpStreamReader(object):
 
         header = ark_file.read(2).decode('utf-8')
         if header != "\0B":
-            print("Input .ark file is not binary"); exit(1)
+            raise Exception("Input .ark file is not binary")
         format = self._read_string(ark_file)
         
         if format == "FM" or format == "HM":
@@ -120,7 +120,7 @@ class ScpStreamReader(object):
                 utt_mat.resize(rows*cols)
             utt_mat = np.reshape(utt_mat, (rows, cols))
         else:
-            print("Unsupported .ark file with %s format" % format); exit(1)
+            raise Exception("Unsupported .ark file with %s format" % format)
         ark_file.close()
 
         return utt_id, utt_mat
@@ -276,15 +276,9 @@ class ScpStreamReader(object):
         src = self.feat[self.utt_index:self.utt_index+batch_size]
         tgt = self.label[self.utt_index:self.utt_index+batch_size]
 
-        src = self.augment_src(src)
-        if self.sort_src or self.pack_src:
-            lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
-            src, tgt = zip(*lst)
+        self.utt_index += len(tgt)
+        src, tgt = self.collate(src, tgt)
 
-        self.utt_index += len(src)
-
-        src = self.collate_src(src) if not self.pack_src else self.collate_src_pack(src)
-        tgt = self.collate_tgt(tgt)
         return (*src, *tgt)
 
     def next(self, batch_input=3000):
@@ -299,16 +293,10 @@ class ScpStreamReader(object):
         last = (j==l)
 
         src, tgt = self.feat[self.utt_index:j], self.label[self.utt_index:j]
-        src = self.augment_src(src)
-        if self.sort_src or self.pack_src:
-            lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
-            src, tgt = zip(*lst)
 
-        seqs = len(src)
+        seqs = len(tgt)
         self.utt_index += seqs
-
-        src = self.collate_src(src) if not self.pack_src else self.collate_src_pack(src)
-        tgt = self.collate_tgt(tgt)
+        src, tgt = self.collate(src, tgt)
         
         return (*src, *tgt, seqs, last)
         
@@ -346,25 +334,18 @@ class ScpBatchReader(ScpStreamReader):
 
             utt_mat, utt_lbl = self.read_utt_label(utt_id, utt_mat)
             if utt_lbl is None: continue
-
             feats.append(utt_mat)
             labels.append(utt_lbl)
-            
+
         return len(self.feat)
         
     def next(self, batch_input=1):
         src, tgt = self.feat[self.utt_index], self.label[self.utt_index]
 
-        src = self.augment_src(src)
-        if self.sort_src or self.pack_src:
-            lst = sorted(zip(src, tgt), key=lambda e : -e[0].shape[0])
-            src, tgt = zip(*lst)
-        
-        seqs = len(src)
+        seqs = len(tgt)
         self.utt_index += 1
         last = (self.utt_index == len(self.feat))
 
-        src = self.collate_src(src) if not self.pack_src else self.collate_src_pack(src)
-        tgt = self.collate_tgt(tgt)
-        
+        src, tgt = self.collate(src, tgt)
+
         return (*src, *tgt, seqs, last)

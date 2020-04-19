@@ -44,7 +44,10 @@ def write_ark_thread(segs, out_ark, out_scp, args):
 
         start = int(start * sample_rate)
         end = -1 if end <= 0. else int(end * sample_rate)
-        feats = audio.extract_fbank(signal[start:end], fbank_mat, sample_rate=sample_rate)
+        if start >= len(signal) or start >= end:
+             print('Wrong segment %s' % seg_name)
+             continue
+        feats = audio.extract_fbank(signal[start:end], fbank_mat, sample_rate=sample_rate, nfft=args.nfft)
         if len(feats) > args.max_len or len(feats) < args.min_len:
             continue
         if args.mean_norm:
@@ -57,16 +60,16 @@ def write_ark_thread(segs, out_ark, out_scp, args):
     
 
 parser = argparse.ArgumentParser(description='pynn')
-parser.add_argument('--seg-desc', help='path to segment description file', required=True)
-parser.add_argument('--seg-info', help='generate segment name with timestamps', action='store_true')
+parser.add_argument('--seg-desc', help='segment description file', required=True)
+parser.add_argument('--seg-info', help='append timestamps to the segment names', action='store_true')
 parser.add_argument('--wav-path', help='path to wav files', type=str, default=None)
-parser.add_argument('--sample-rate', help='path to wav files', type=int, default=16000)
+parser.add_argument('--sample-rate', help='sample rate', type=int, default=16000)
 parser.add_argument('--fbank', help='number of filter banks', type=int, default=40)
 parser.add_argument('--nfft', help='number of FFT points', type=int, default=256)
 parser.add_argument('--max-len', help='maximum frames for a segment', type=int, default=10000)
 parser.add_argument('--min-len', help='minimum frames for a segment', type=int, default=4)
-parser.add_argument('--mean-norm', help='to perform mean substraction', action='store_true')
-parser.add_argument('--fp16', help='float16 instead of float32', action='store_true')
+parser.add_argument('--mean-norm', help='mean substraction', action='store_true')
+parser.add_argument('--fp16', help='use float16 instead of float32', action='store_true')
 parser.add_argument('--output', help='output file', type=str, default='data')
 parser.add_argument('--jobs', help='number of parallel jobs', type=int, default=1)
 

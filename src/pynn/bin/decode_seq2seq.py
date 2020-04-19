@@ -38,6 +38,7 @@ parser.add_argument('--zero-pad', help='padding zeros to sequence end', type=int
 parser.add_argument('--batch-size', help='batch size', type=int, default=32)
 parser.add_argument('--beam-size', help='beam size', type=int, default=10)
 parser.add_argument('--max-len', help='max len', type=int, default=100)
+parser.add_argument('--fp16', help='float 16 bits', action='store_true')
 parser.add_argument('--coverage', help='coverage term', type=float, default=0)
 parser.add_argument('--len-norm', help='length normalization', action='store_true')
 parser.add_argument('--output', help='output file', type=str, default='hypos/H_1_LV.ctm')
@@ -69,6 +70,7 @@ if __name__ == '__main__':
     model = Seq2Seq(**mdic['params']).to(device)
     model.load_state_dict(mdic['state'])
     model.eval()
+    if args.fp16: model.half()
     
     lm = None
     if args.lm_dic is not None:
@@ -76,14 +78,11 @@ if __name__ == '__main__':
         lm = SeqLM(**mdic['params']).to(device)
         lm.load_state_dict(mdic['state'])
         
-    reader = ScpStreamReader(args.data_scp, mean_sub=args.mean_sub,
-                                    zero_pad=args.zero_pad, downsample=args.downsample)
+    reader = ScpStreamReader(args.data_scp, mean_sub=args.mean_sub, fp16=args.fp16,
+                             zero_pad=args.zero_pad, downsample=args.downsample)
     reader.initialize()
 
     since = time.time()
-    #total_time = 0.
-    #max_time = 0.
-    #count = 0
     batch_size = args.batch_size
     fout = open(args.output, 'w')
     while True:
@@ -91,12 +90,9 @@ if __name__ == '__main__':
         if len(utts) == 0: break
         with torch.no_grad():
             src_seq, src_mask = src_seq.to(device), src_mask.to(device)
-            #tm = time.time()
             hypos, scores = beam_search_cache(model, src_seq, src_mask, device, args.beam_size,
                                 args.max_len, len_norm=args.len_norm, coverage=args.coverage,
                                 lm=lm, lm_scale=args.lm_scale)
-            #tm = (time.time() - tm)*100. / src_seq.size(1)
-            #max_time = max(tm, max_time); total_time += tm; count += 1
             
             hypos, scores = hypos.tolist(), scores.tolist()
             if args.format == 'ctm':
@@ -109,4 +105,3 @@ if __name__ == '__main__':
     fout.close()
     time_elapsed = time.time() - since
     print("  Elapsed Time: %.0fm %.0fs" % (time_elapsed // 60, time_elapsed % 60))
-    #print("  Avg: %.4f, Max: %.4f" % (total_time/count, max_time))
