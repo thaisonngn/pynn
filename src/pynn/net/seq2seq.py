@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from . import WordDropout
+from . import freeze_module
 from .attn import MultiHeadAttention
 
 class Encoder(nn.Module):
@@ -133,6 +133,11 @@ class Seq2Seq(nn.Module):
                             use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std)
         self.decoder = Decoder(output_size, hidden_size, n_dec, n_head,
                             lm=lm, shared_emb=shared_emb, dropout=dropout, emb_drop=emb_drop)
+
+    def freeze(self, mode=0):
+        if mode == 1:
+            freeze_module(self.encoder)
+            print("freeze the encoder")
 
     def attend(self, src_seq, src_mask, tgt_seq):
         enc_out, src_mask = self.encoder(src_seq, src_mask)[0:2]

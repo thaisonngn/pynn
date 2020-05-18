@@ -16,3 +16,8 @@ class WordDropout(nn.Module):
             mask = mask.type(seq.dtype).bernoulli_(1. - dropout) / (1. - dropout)
             seq *= mask
         return seq
+
+def freeze_module(layer):
+    for param in layer.parameters():
+        param.requires_grad = False
+    return layer
