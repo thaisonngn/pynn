@@ -18,7 +18,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from pynn.decoder.seq2seq import beam_search
-from pynn.util import write_ctm, write_text
+from pynn.util import write_ctm, write_stm, write_text
 from pynn.io.kaldi_seq import ScpStreamReader
 from pynn.net.tf import Transformer
 from pynn.net.seq2seq import Seq2Seq
@@ -92,9 +92,11 @@ if __name__ == '__main__':
             hypos, scores = hypos.tolist(), scores.tolist()
             if args.format == 'ctm':
                 write_ctm(hypos, scores, fout, utts, dic, word_dic, args.space)
+            elif args.format == 'stm':
+                write_stm(hypos, fout, utts, dic, word_dic, args.space)
             else:
-                write_text(hypos, scores, fout, utts, dic, args.space)
-        
+                write_text(hypos, fout, utts, dic, word_dic, args.space)
+
     fout.close()
     time_elapsed = time.time() - since
     print("  Elapsed Time: %.0fm %.0fs" % (time_elapsed // 60, time_elapsed % 60))

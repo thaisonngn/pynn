@@ -18,16 +18,16 @@ class Ensemble(nn.Module):
         enc_out = []
         mask_out = []
         for model in self.models:
-            output, mask = model.encode(src_seq, src_mask)
+            output, mask = model.encode(src_seq, src_mask)[:2]
             enc_out.append(output)
             mask_out.append(mask)
 
-        return enc_out, mask_out
+        return enc_out, mask_out, None
 
     def decode(self, enc_out, src_mask, tgt_seq):
         dec_out = 0.
         for model, enc, mask in zip(self.models, enc_out, src_mask):
-            dec_out += model.decode(enc, mask, tgt_seq)
+            dec_out += model.decode(enc, mask, tgt_seq)[0]
         dec_out = dec_out / len(self.models)
 
-        return dec_out
+        return dec_out, None
