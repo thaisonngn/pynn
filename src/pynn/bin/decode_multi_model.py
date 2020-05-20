@@ -38,6 +38,7 @@ parser.add_argument('--batch-size', help='batch size', type=int, default=32)
 parser.add_argument('--beam-size', help='beam size', type=int, default=10)
 parser.add_argument('--max-len', help='max len', type=int, default=200)
 parser.add_argument('--len-norm', help='length normalization', action='store_true')
+parser.add_argument('--fp16', help='float 16 bits', action='store_true')
 parser.add_argument('--output', help='output file', type=str, default='hypos/H_1_LV.ctm')
 parser.add_argument('--format', help='output format', type=str, default='ctm')
 parser.add_argument('--space', help='space token', type=str, default='<space>')
@@ -73,10 +74,13 @@ if __name__ == '__main__':
             model = Transformer(**m_params).to(device)
         model.load_state_dict(sdic['state'])
         model.eval()
+        if args.fp16: model.half()
         models.append(model)
     model = Ensemble(models)
+    if args.fp16: model.half()
 
-    reader = ScpStreamReader(args.data_scp, mean_sub=args.mean_sub, downsample=args.downsample)
+    reader = ScpStreamReader(args.data_scp, mean_sub=args.mean_sub,
+                             fp16=args.fp16, downsample=args.downsample)
     reader.initialize()
 
     since = time.time()
