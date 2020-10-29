@@ -142,12 +142,31 @@ def save_last_chkpt(path, epoch, model, optimizer=None, state=None):
     chkp_file = path + '/last-epoch.chkpt'
     torch.save(dic, chkp_file)
 
-def load_last_chkpt(path, model, optimizer=None):
-    chkp_file = path + '/last-epoch.chkpt'
-    if not os.path.isfile(chkp_file):
-        return 0, None
-    dic = torch.load(chkp_file)
-    model.load_state_dict(dic['model_state'])
+def load_last_chkpt(path, model, optimizer=None, fine_tuning=False, device: str = 'cpu'):
+    if fine_tuning and os.path.isfile(path):
+        chkp_file = path
+    else:
+        chkp_file = path + '/last-epoch.chkpt'
+        if not os.path.isfile(chkp_file):
+            return 0, None
+    dic = torch.load(chkp_file, map_location=device)
+    if fine_tuning:
+        filename: str = os.path.basename(chkp_file)
+        state_dict = {}
+        if filename.startswith('epoch-avg') and filename.endswith('.dic'):
+            state_dict = dic['state']
+        elif filename.startswith('epoch-') and filename.endswith('.pt'):
+            state_dict = dic
+        del state_dict['decoder.project.weight']
+        del state_dict['decoder.project.bias']
+        del state_dict['decoder.emb.weight']
+        if 'epoch' not in dic:
+            dic['epoch'] = None
+        if 'epoch_state' not in dic:
+            dic['epoch_state'] = None
+    else:
+        state_dict = dic['model_state']
+    model.load_state_dict(state_dict, strict=not fine_tuning)
     if optimizer is not None:
         optimizer.load_state_dict(dic['optimizer_state'])
     return dic['epoch'], dic['epoch_state']

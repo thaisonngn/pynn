@@ -69,7 +69,7 @@ def write_ctm(hypos, scores, fout, utts, dic, word_dic=None, space=''):
         fout.write('# %s\n' % utts[i])
         conv, stime, etime = parse_time_info(utts[i])
         hypo = token2word(hypos[i], scores[i], dic, word_dic, space)
-        
+
         if len(hypo) == 0: continue
         stime = float(stime)
         span = (float(etime) - stime) / len(hypo)

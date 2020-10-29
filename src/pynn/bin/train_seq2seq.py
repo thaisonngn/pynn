@@ -67,6 +67,8 @@ parser.add_argument('--loss-norm', help='per-token loss normalization', action='
 parser.add_argument('--grad-norm', help='per-token grad normalization', action='store_true')
 parser.add_argument('--fp16', help='fp16 or not', action='store_true')
 
+parser.add_argument('--finetune', help='load weights from this checkpoints', type=str, default=None)
+
 if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
@@ -108,6 +110,6 @@ if __name__ == '__main__':
            'n_warmup': args.n_warmup, 'n_const': args.n_const,
            'b_input': args.b_input, 'b_update': args.b_update, 'n_print': args.n_print}
     datasets = (tr_reader, cv_reader)
-    train_model(model, datasets, args.n_epoch, device, cfg,
+    train_model(model, datasets, args.n_epoch, device, cfg, finetune_path=args.finetune,
                 loss_norm=args.loss_norm, grad_norm=args.grad_norm, fp16=args.fp16)
 

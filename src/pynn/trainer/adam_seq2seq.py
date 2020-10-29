@@ -126,7 +126,7 @@ def eval_epoch(model, data, device, batch_input):
     accuracy = n_word_correct / n_word_total
     return loss_per_word, accuracy
     
-def train_model(model, datasets, epochs, device, cfg,
+def train_model(model, datasets, epochs, device, cfg, finetune_path: str = None,
                 loss_norm=False, grad_norm=True, fp16=False):
     ''' Start training '''
 
@@ -143,11 +143,17 @@ def train_model(model, datasets, epochs, device, cfg,
     b_update = cfg['b_update']
 
     opt = ScheduledOptim(512, n_warmup, n_const, lr)
-    model = opt.initialize(model, weight_decay=weight_decay, fp16=fp16)
 
     tr_data, cv_dat = datasets
     pool = EpochPool(5)
-    epoch_i, _ = load_last_chkpt(model_path, model, opt)
+
+    if finetune_path is not None:
+        load_last_chkpt(finetune_path, model, fine_tuning=True, device=device)
+        epoch_i = 0
+        model = opt.initialize(model, weight_decay=weight_decay, fp16=fp16)
+    else:
+        model = opt.initialize(model, weight_decay=weight_decay, fp16=fp16)
+        epoch_i, _ = load_last_chkpt(model_path, model, opt)
 
     while epoch_i < epochs:
         epoch_i += 1
