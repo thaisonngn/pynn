@@ -25,8 +25,23 @@ def write_ark(ark, dic, scp=None, append=False):
         mode = 'a' if append else 'w'    
         with open(scp, mode) as fd:
             for key, position in zip(dic, pos_list):
-                fd.write(key + u' ' + ark + ':' + str(position) + os.linesep)
+                fd.write(key + ' ' + ark + ':' + str(position) + os.linesep)
 
+def write_ark_file(ark_file, scp_file, dic, scp=None):
+    pos_lst, len_lst = [], []
+    pos = ark_file.tell()
+    for key in dic:
+        encode_key = (key + ' ').encode()
+        ark_file.write(encode_key)
+        pos += len(encode_key)
+        pos_lst.append(pos)
+        data = dic[key]
+        len_lst.append(len(data))
+        pos += write_array(ark_file, data)
+
+    ark = ark_file.name
+    for key, ps, ln in zip(dic, pos_lst, len_lst):
+        scp_file.write(key + ' ' + ark + ':' + str(ps) + ' ' + str(ln) + os.linesep)
 
 def write_array(fd, array):
     size = 0

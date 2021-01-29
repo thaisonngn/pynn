@@ -51,27 +51,6 @@ def make_context(feature, left, right):
         feature.append(numpy.vstack((feature[-1][1:], feature[-1][-1])))
     return numpy.hstack(feature)
 
-def down_sample(feature, label=None, rand=True):
-    l = feature.shape[0] // 3 *3
-    j = random.randint(0,1) if rand else 0
-    feature = [feature[j:l:3,:], feature[j+1:l:3,:]]
-    feature = numpy.hstack(feature)
-
-    if label is not None:
-        label = label[j+1:l:3][:feature.shape[0]]
-        return (feature, label)
-    else:
-        return feature
-
-def down_sample_2x(feature):
-    idx = list(range(0, feature.shape[0], 3))
-    feature = numpy.delete(feature, idx, axis=0)
-    
-    feature = feature[:(feature.shape[0]//4)*4,:]
-    feature = feature.reshape(feature.shape[0]//4, feature.shape[1]*4)
-
-    return feature
-
 def shuffle_data(feature, label=None, target=None):
     '''
     Randomly shuffles features and labels in the *same* order.
@@ -86,56 +65,3 @@ def shuffle_data(feature, label=None, target=None):
     if target is not None:
         numpy.random.seed(seed)
         numpy.random.shuffle(target)
-                
-class DataPool(object):
-
-    class ReadingThread(threading.Thread):
-        def __init__(self, reader, item_size, pool_size):
-            threading.Thread.__init__(self)
-            
-            self.reader = reader
-            self.item_size = item_size
-            self.pool_size = pool_size
-
-            self.buffer = []
-            self.end_reading = False
-     
-        def run(self):
-            for i in range(self.pool_size):
-                if not self.reader.available():
-                    self.end_reading = True
-                    break
-                item = self.reader.next(self.item_size)
-                self.buffer.append(item)
-
-    def __init__(self, reader, item_size, pool_size=4000):
-        self.reader = reader
-        self.item_size = item_size
-        self.pool_size = pool_size
-        
-    def initialize(self):
-        self.reader.initialize()
-     
-        self.items = []     
-        self.index = 0
-        self.thread = None
-        self.end_reading = False
-
-    def available(self):
-        if not self.end_reading and self.thread is None:
-            self.thread = DataPool.ReadingThread(self.reader, self.item_size, self.pool_size)
-            self.thread.start()
-
-        if self.index >= len(self.items) and self.thread is not None:
-            self.thread.join()
-            self.items = self.thread.buffer
-            self.end_reading = self.thread.end_reading
-            self.index = 0
-            self.thread = None
-
-        return self.index < len(self.items)
-    
-    def next(self):
-        item = self.items[self.index]
-        self.index += 1
-        return item

@@ -1,78 +1,77 @@
+#!/usr/bin/env python3
+# encoding: utf-8
 
-import sys
-import threading
+# Copyright 2019 Thai-Son Nguyen
+# Licensed under the Apache License, Version 2.0 (the "License")
+
+import time
 import argparse
 
 import torch
-import torch.nn.functional as F
 
-from pynn.io.kaldi import KaldiStreamLoader
-from pynn.net.rnn_ctc import DeepLSTMv2
-from pynn.util.decoder import Decoder
-
+from pynn.util import load_object
+from pynn.decoder.ctc import beam_search
+from pynn.util.text import load_dict, write_hypo
+from pynn.io.audio_seq import SpectroDataset
+ 
 parser = argparse.ArgumentParser(description='pynn')
-parser.add_argument('--data-scp', help='path to data scp file', required=True)
-parser.add_argument('--model-file', help='model file', required=True)
-parser.add_argument('--model-spec', help='model specification', required=True)
-parser.add_argument('--bidirect', help='uni or bi directional', default='True')
-parser.add_argument('--dict', help='dictionary file', required=True)
+parser.add_argument('--model-dic', help='model dictionary', required=True)
+parser.add_argument('--lm-dic', help='language model dictionary', default=None)
+parser.add_argument('--lm-scale', help='language model scale', type=float, default=0.5)
 
-def parse_utt(utt):
-    timestamp = utt[-13:]
-    stime = timestamp[:6]
-    stime = stime[:-2].lstrip('0') + '.' + stime[-2:]
-    etime = timestamp[7:]
-    etime = etime[:-2].lstrip('0') + '.' + etime[-2:]
-    channel = utt[-15:-14]
-    conv = utt[:-16] + channel
-    return (conv, stime, etime)
-    
+parser.add_argument('--dict', help='dictionary file', default=None)
+parser.add_argument('--word-dict', help='word dictionary file', default=None)
+parser.add_argument('--data-scp', help='path to data scp', required=True)
+parser.add_argument('--downsample', help='concated frames', type=int, default=1)
+parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
+
+parser.add_argument('--batch-size', help='batch size', type=int, default=32)
+parser.add_argument('--blank', help='blank', type=int, default=0)
+parser.add_argument('--beam-size', help='beam size', type=int, default=10)
+parser.add_argument('--pruning', help='pruning size', type=float, default=1.5)
+parser.add_argument('--fp16', help='float 16 bits', action='store_true')
+parser.add_argument('--output', help='output file', type=str, default='hypos/H_1_LV.ctm')
+parser.add_argument('--format', help='output format', type=str, default='ctm')
+parser.add_argument('--space', help='space token', type=str, default='<space>')
+
 if __name__ == '__main__':
     args = parser.parse_args()
 
-    fin = open(args.dict, 'r')
-    dic = {}
-    for line in fin:
-        tokens = line.split()
-        dic[int(tokens[1])] = tokens[0]
-    
-    model_spec = map(int, args.model_spec.split(':'))
-    model = DeepLSTMv2(input_size=model_spec[0], hidden_size=model_spec[1],
-                layers=model_spec[2], num_classes=model_spec[3], bidirectional=args.bidirect)    
-    model.load_state_dict(torch.load(args.model_file))
-    model.train(False)
-    
-    use_gpu = torch.cuda.is_available()
-    if use_gpu:
-        model = model.cuda()
-    
-    data_loader = KaldiStreamLoader(args.data_scp)
-    data_loader.initialize()
+    dic, word_dic = load_dict(args.dict, args.word_dict)
 
-    batch_size = 20
-    ctm = open("hypos/H_1_LV.ctm", 'w')
-    while True:
-        inputs, input_sizes, utts = data_loader.read_batch_utt(batch_size)
-        if len(inputs) == 0: break
-        if use_gpu: inputs = inputs.cuda()
+    use_gpu = torch.cuda.is_available()
+    device = torch.device('cuda' if use_gpu else 'cpu')
+
+    mdic = torch.load(args.model_dic)
+    model = load_object(mdic['class'], mdic['module'], mdic['params'])
+    model = model.to(device)
+    model.load_state_dict(mdic['state'])
+    model.eval()
+    if args.fp16: model.half()
+ 
+    lm = None
+    if args.lm_dic is not None:
+        mdic = torch.load(args.lm_dic)
+        lm = load_object(mdic['class'], mdic['module'], mdic['params'])
+        lm = lm.to(device)
+        lm.load_state_dict(mdic['state'])
+        lm.eval()
+        if args.fp16: lm.half()
         
-        outputs = model.extract(inputs, input_sizes)
-        outputs = F.softmax(outputs, -1)
-        
-        print outputs.size()
-        hypos = Decoder.decode_prob(outputs)
-        for i in range(len(hypos)):
-            hypo = hypos[i]
-            if len(hypo) == 0: continue
-            conv, stime, etime = parse_utt(utts[i])
-            stime = float(stime)
-            dur = (float(etime) - stime) / input_sizes[i]
-            for token, frame, prob in hypo:
-                if token == 0: continue
-                #if float(prob) < 0.5: continue
-                word = '<unk>'
-                if token > 1: word = dic[token]
-                #if float(prob) < 0.3: word = '<unk>'
-                wtime = stime + frame*dur - 0.01
-                ctm.write('%s 1 %.2f %.2f %s \t %.2f\n' % (conv, wtime, 0.02, word, prob))
-    ctm.close()
+    reader = SpectroDataset(args.data_scp, mean_sub=args.mean_sub, fp16=args.fp16,
+                            sort_src=True, sek=False, downsample=args.downsample)
+    since = time.time()
+    fout = open(args.output, 'w')
+    with torch.no_grad():
+        while True:
+            seqs, masks, utts = reader.read_batch_utt(args.batch_size)
+            if not utts: break
+            seqs, masks = seqs.to(device), masks.to(device)
+            hypos = beam_search(model, seqs, masks, device, lm,
+                                args.lm_scale, args.beam_size, args.pruning, args.blank)
+            hypos = [[el+2-args.blank for el in hypo] + [2] for hypo in hypos]
+             
+            write_hypo(hypos, None, fout, utts, dic, word_dic, args.space, args.format)
+    fout.close()
+    time_elapsed = time.time() - since
+    print("  Elapsed Time: %.0fm %.0fs" % (time_elapsed // 60, time_elapsed % 60))

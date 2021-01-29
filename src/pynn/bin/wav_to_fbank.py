@@ -17,21 +17,24 @@ def write_ark_thread(segs, out_ark, out_scp, args):
     fbank_mat = audio.filter_bank(args.sample_rate, args.nfft, args.fbank)
     cache_wav = ''
     
+    ark_file = open(out_ark, 'wb')
+    scp_file = open(out_scp, 'w')
     for seg in segs:
         tokens = seg.split()
         
-        if args.seg_info:
-            wav, start, end = tokens[:3]
-            seg_name = '%s-%06.f-%06.f' % (wav, float(start)*100, float(end)*100)
-        else:
-            if len(tokens) == 1: tokens.append(tokens[0])
-            if len(tokens) == 2: tokens.extend(['0.0', '0.0'])
-            seg_name, wav, start, end = tokens[:4]
+        if len(tokens) == 1: tokens.insert(0, '')
+        if len(tokens) == 2: tokens.extend(['0.0', '0.0'])
+        seg_name, wav, start, end = tokens[:4]
+
         start, end = float(start), float(end)
         
         if args.wav_path is not None:
             wav = wav if wav.endswith('.wav') else wav + '.wav'
             wav = args.wav_path + '/' + wav
+
+        if seg_name == '':
+            seg_name = os.path.basename(wav)[:-4]
+
         if cache_wav != wav:
             if not os.path.isfile(wav):
                 print('File %s does not exist' % wav)
@@ -42,11 +45,14 @@ def write_ark_thread(segs, out_ark, out_scp, args):
                 continue
             cache_wav = wav
 
-        start = int(start * sample_rate)
-        end = -1 if end <= 0. else int(end * sample_rate)
-        if start >= len(signal) or start >= end:
-             print('Wrong segment %s' % seg_name)
-             continue
+        end = float(len(signal)) / sample_rate if end <= 0. else end
+        if args.seg_info:
+            seg_name = '%s-%06.f-%06.f' % (seg_name, start*100, end*100)
+        start, end = int(start * sample_rate), int(end * sample_rate)
+        if start >= len(signal) or start >= end >= 0:
+            print('Wrong segment %s' % seg_name)
+            continue
+
         feats = audio.extract_fbank(signal[start:end], fbank_mat, sample_rate=sample_rate, nfft=args.nfft)
         if len(feats) > args.max_len or len(feats) < args.min_len:
             continue
@@ -56,12 +62,15 @@ def write_ark_thread(segs, out_ark, out_scp, args):
             feats = feats.astype(np.float16) 
 
         dic = {seg_name: feats}
-        kaldi_io.write_ark(out_ark, dic, out_scp, append=True)
-    
+        #kaldi_io.write_ark(out_ark, dic, out_scp, append=True)
+        kaldi_io.write_ark_file(ark_file, scp_file, dic)
+    ark_file.close()
+    scp_file.close()
+ 
 
 parser = argparse.ArgumentParser(description='pynn')
-parser.add_argument('--seg-desc', help='segment description file', required=True)
-parser.add_argument('--seg-info', help='append timestamps to the segment names', action='store_true')
+parser.add_argument('--seg-desc', help='input segment description file', required=True)
+parser.add_argument('--seg-info', help='append timestamp suffix to segment name', action='store_true')
 parser.add_argument('--wav-path', help='path to wav files', type=str, default=None)
 parser.add_argument('--sample-rate', help='sample rate', type=int, default=16000)
 parser.add_argument('--fbank', help='number of filter banks', type=int, default=40)
