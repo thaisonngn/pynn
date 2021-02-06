@@ -40,7 +40,7 @@ class TextSeqDataset(Dataset):
        
     def initialize(self, b_input=0, b_sample=256):
         seqs = []
-        for line in smart_open(self.path, 'r'):
+        for line in smart_open(self.path, 'rt'):
             tokens = line.split()
             seq_id = tokens[0]
             seq = [int(token) for token in tokens[1:]]
@@ -54,7 +54,7 @@ class TextSeqDataset(Dataset):
         self.batches = self.create_batch(b_input, b_sample)
         self.print('Done.')
 
-    def create_loader(self):sek
+    def create_loader(self):
         batches = self.batches.copy()
         if self.epoch > -1:
             random.seed(self.epoch)
@@ -93,13 +93,12 @@ class TextSeqDataset(Dataset):
         return torch.LongTensor(seqs)
 
 class TextPairDataset(Dataset):
-    def __init__(self, src_path, tgt_path, src_sek=True, tgt_sek=True,
-                 sort_src=False, threads=1, verbose=True):
-        self.src_path = src_path
-        self.tgt_path = tgt_path
+    def __init__(self, path, src_sek=True, tgt_sek=True, sort_src=False, threads=1, verbose=True):
+        self.path = path
         self.src_sek = src_sek
         self.tgt_sek = tgt_sek
 
+        self.sort_src = sort_src
         self.threads = threads
         self.seqs = []
 
@@ -126,19 +125,17 @@ class TextPairDataset(Dataset):
        
     def initialize(self, b_input=0, b_sample=256):
         seqs = []
-        for line in smart_open(self.src_path, 'r'):
+        for line in smart_open(self.path, 'rt'):
             tokens = line.split()
-            seq = [int(token) for token in tokens]
-            seq = [el+2 for el in seq] + [2] if self.src_sek else seq
-            seqs.append([seq, None])
-        idx = 0
-        for line in smart_open(self.tgt_path, 'r'):
-            if idx >= len(seqs) break
-            tokens = line.split()
-            seq = [int(token) for token in tokens]
-            seq = [el+2 for el in seq] + [2] if self.tgt_sek else seq
-            seqs[i][1] = seq
-            idx += 1
+            sp = tokens.index('|')
+            if sp < 1: continue
+            
+            src = [int(token) for token in tokens[:sp]]
+            src = [el+2 for el in src] + [2] if self.src_sek else src
+
+            tgt = [int(token) for token in tokens[sp+1:]]
+            tgt = [el+2 for el in tgt] + [2] if self.tgt_sek else tgt
+            seqs.append([src, tgt])
         
         self.print('%d label sequences loaded.' % len(seqs))
         self.seqs = seqs
@@ -187,11 +184,11 @@ class TextPairDataset(Dataset):
         
         max_len = max(len(inst) for inst in src)
         src = np.array([inst + [0] * (max_len - len(inst)) for inst in src])
-        src = torch.LongTensor(seqs)
+        src = torch.LongTensor(src)
         mask = src.gt(0)
         
         max_len = max(len(inst) for inst in tgt)
         tgt = np.array([inst + [0] * (max_len - len(inst)) for inst in tgt])
-        tgt = torch.LongTensor(seqs)
+        tgt = torch.LongTensor(tgt)
         
         return src, mask, tgt

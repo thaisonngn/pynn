@@ -33,7 +33,7 @@ parser.add_argument('--fp16', help='float 16 bits', action='store_true')
 parser.add_argument('--len-norm', help='length normalization', action='store_true')
 parser.add_argument('--output', help='output file', type=str, default='hypos/H_1_LV.ctm')
 parser.add_argument('--format', help='output format', type=str, default='ctm')
-parser.add_argument('--space', help='space token', type=str, default='<space>')
+parser.add_argument('--space', help='space token', type=str, default='▁')
 
 if __name__ == '__main__':
     args = parser.parse_args()

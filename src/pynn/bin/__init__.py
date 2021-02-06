@@ -139,8 +139,8 @@ def train_encoder_model(model, args, device, n_device=1):
     
 def train_text_encoder_model(model, args, device, n_device=1):
     dist, verbose = n_device > 1, device == 0
-    tr_data = TextPairDataset(args.train_src, args.train_tgt, threads=2, verbose=verbose)
-    cv_data = TextPairDataset(args.valid_src, args.valid_tgt, threads=2, verbose=verbose)
+    tr_data = TextPairDataset(args.train_data, threads=2, verbose=verbose)
+    cv_data = TextPairDataset(args.valid_data, threads=2, verbose=verbose)
     if dist: tr_data.partition(device, n_device)
     n_print = args.n_print // n_device
     b_update = args.b_update // n_device

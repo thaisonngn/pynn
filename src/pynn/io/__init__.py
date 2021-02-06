@@ -11,16 +11,11 @@ import numpy
 readers = {}
 try:
     import gzip
-    readers['.gz'] = gzip.GzipFile
-except ImportError:
-    pass
-try:
-    import bz2
-    readers['.bz2'] = bz2.BZ2File
+    readers['.gz'] = gzip.open
 except ImportError:
     pass
 
-def smart_open(filename, mode = 'rb', *args, **kwargs):
+def smart_open(filename, mode='rb', *args, **kwargs):
     '''
     Opens a file "smartly":
       * If the filename has a ".gz" or ".bz2" extension, compression is handled

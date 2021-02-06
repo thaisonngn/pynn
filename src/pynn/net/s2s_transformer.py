@@ -50,7 +50,7 @@ class Encoder(nn.Module):
         slf_mask = slf_mask.unsqueeze(1).expand(-1, lt, -1) # b x lq x lk
 
         if mode == 1:
-            tri_mask = torch.ones((lt, lt), device=src_maks.device, dtype=torch.uint8)
+            tri_mask = torch.ones((lt, lt), device=src_mask.device, dtype=torch.uint8)
             tri_mask = torch.triu(tri_mask, diagonal=1)
             tri_mask = tri_mask.unsqueeze(0).expand(src_mask.size(0), -1, -1)
             slf_mask = (slf_mask + tri_mask).gt(0)
@@ -76,7 +76,7 @@ class Encoder(nn.Module):
             src_seq = src_seq.view(src_seq.size(0), src_seq.size(1), -1)
             if src_mask is not None: src_mask = src_mask[:, 0:src_seq.size(1)*4:4]
 
-        enc_out = self.project(src_seq) if self.project is not None else enc_out
+        enc_out = self.project(src_seq) if self.project is not None else src_seq
         if self.rel_pos:
             pos_emb = self.pos.embed(src_mask)
         else:
