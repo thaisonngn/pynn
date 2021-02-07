@@ -116,8 +116,8 @@ class Decoder(nn.Module):
         return dec_out, emb_out, hid
 
 class Conformer(nn.Module):
-    def __init__(self, d_input, n_classes, d_enc=256, d_inner=0, n_enc=4, n_kernel=25,
-                 d_dec=320, n_dec=2, n_head=8, shared_emb=True,
+    def __init__(self, d_input, n_dec_vocab, n_tran_vocab, d_enc=256, d_inner=0, n_enc=4,
+                 n_kernel=25, d_dec=320, n_dec=2, n_head=8, shared_emb=True,
                  dropout=0.1, emb_drop=0.1, enc_drop=0., dec_drop=0.,
                  time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super().__init__()
@@ -126,9 +126,9 @@ class Conformer(nn.Module):
         self.encoder = Encoder(d_input, d_enc, d_inner, n_enc, n_head, n_kernel=n_kernel,
                             dropout=dropout, layer_drop=enc_drop,
                             time_ds=time_ds, use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std)
-        self.decoder = Decoder(n_classes, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
+        self.decoder = Decoder(n_dec_vocab, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
                             dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop)
-        self.trancoder = Decoder(n_classes, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
+        self.trancoder = Decoder(n_tran_vocab, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
                             dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop)
 
     def attend(self, src_seq, src_mask, tgt_seq):

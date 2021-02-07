@@ -21,7 +21,8 @@ parser.add_argument('--train-target', help='path to train target', required=True
 parser.add_argument('--valid-scp', help='path to validation scp', required=True)
 parser.add_argument('--valid-target', help='path to validation target', required=True)
 
-parser.add_argument('--n-classes', type=int, required=True)
+parser.add_argument('--n-dec-vocab', type=int, required=True)
+parser.add_argument('--n-tran-vocab', type=int, required=True)
 parser.add_argument('--d-enc', type=int, default=256)
 parser.add_argument('--d-dec', type=int, default=320)
 parser.add_argument('--d-inner', type=int, default=0)
