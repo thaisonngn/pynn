@@ -14,13 +14,14 @@ from torch.utils.data import DataLoader
 from . import smart_open
  
 class SpectroDataset(Dataset):
-    def __init__(self, scp_path, label_path=None, verbose=True,
-                 sek=True, sort_src=False, pack_src=False,
+    def __init__(self, scp_path, label_path=None, paired_label=False,
+                 verbose=True, sek=True, sort_src=False, pack_src=False,
                  downsample=1, preload=False, threads=4, fp16=False, 
                  spec_drop=False, spec_bar=2, spec_ratio=0.4,
                  time_stretch=False, time_win=10000, mean_sub=False):
         self.scp_path = scp_path     # path to the .scp file
         self.label_path = label_path # path to the label file
+        self.paired_label = paired_label
 
         self.downsample = downsample
         self.sort_src = sort_src
@@ -82,9 +83,16 @@ class SpectroDataset(Dataset):
             utt_id = tokens[0]
             if utt_id == '' or utt_id not in utts: continue
 
-            lbl = [int(token) for token in tokens[1:]]
-            if self.sek:
-                lbl = [1] + [el+2 for el in lbl] + [2]
+            if self.paired_label:
+                sp = tokens.index('|')
+                lb1 = [int(token) for token in tokens[:sp]]
+                lb1 = [1] + [el+2 for el in lb1] + [2] if self.sek else lb1
+                lb2 = [int(token) for token in tokens[sp+1:]]
+                lb2 = [1] + [el+2 for el in lb2] + [2] if self.sek else lb2
+                lbl = (lb1, lb2)
+            else:
+                lbl = [int(token) for token in tokens[1:]]
+                lbl = [1] + [el+2 for el in lbl] + [2] if self.sek else lbl
             labels[utt_id] = lbl
 
         utt_lbl = []
@@ -342,11 +350,19 @@ class SpectroDataset(Dataset):
         return inputs, masks
 
     def collate_tgt(self, tgt):
-        max_len = max(len(inst) for inst in tgt)
-        labels = np.array([inst + [0] * (max_len - len(inst)) for inst in tgt])
-        labels = torch.LongTensor(labels)
+        if self.paired_label:
+            lb1, lb2 = zip(*tgt)
+            max_len = max(len(inst) for inst in lb1)
+            lb1 = np.array([inst + [0] * (max_len - len(inst)) for inst in lb1])
+            max_len = max(len(inst) for inst in lb2)
+            lb2 = np.array([inst + [0] * (max_len - len(inst)) for inst in lb2])
+            labels = (torch.LongTensor(lb1), torch.LongTensor(lb2))
+        else:
+            max_len = max(len(inst) for inst in tgt)
+            labels = np.array([inst + [0] * (max_len - len(inst)) for inst in tgt])
+            labels = (torch.LongTensor(labels),)
  
-        return labels, 
+        return (*labels) 
 
     def collate_fn(self, batch):
         src, tgt = zip(*batch)
