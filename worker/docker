@@ -1,0 +1,12 @@
+docker container run -d -p8001:60019 -p8002:4443 erlang-mediator-1.0
+docker stop hash_or_autoname
+docker ps
+docker container run -d --network=host en-s2s-v2-docker:1.0.1 /asr/start-worker-docker.sh -s localhost -p 8001 -n 4 -b 6
+docker save myimage:latest | gzip > myimage_latest.tar.gz
+docker logs hash_or_autoname
+docker stop
+docker image rm -f <name>
+docker load < en-s2s-segtext-8bit.tar.gz
+docker exec -it 33f556f975be bash
+
+docker container run -d --network=host en-s2s-segtext-8bit ./start-worker-docker.sh -s i13srv30 -p 60019 -n 8 -b 8

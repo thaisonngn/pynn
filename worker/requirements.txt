@@ -1,0 +1,3 @@
+Cython==0.29.7
+webrtcvad
+scipy

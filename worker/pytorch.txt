@@ -1,0 +1,5 @@
+[with GPU]
+conda install pytorch cudatoolkit=10.2 -c pytorch
+
+[CPU only]
+conda install pytorch cpuonly -c pytorch
