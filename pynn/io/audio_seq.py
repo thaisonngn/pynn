@@ -76,7 +76,7 @@ class SpectroDataset(Dataset):
             path, pos = path_pos.split(':')
             path = path if path.startswith('/') else scp_dir + path
             utts[utt_id] = (utt_id, path, pos, utt_len)
- 
+
         labels = {}
         for line in smart_open(self.label_path, 'r'):
             tokens = line.split()

@@ -3,6 +3,7 @@
 
 from pynn.io.audio_seq import SpectroDataset
 from pynn.io.text_seq import TextSeqDataset, TextPairDataset
+from pynn.trainer.adam_s2s_memory import train_model as train_s2s_memory
 from pynn.trainer.adam_s2s import train_model as train_s2s
 from pynn.trainer.adam_ctc import train_model as train_ctc
 from pynn.trainer.adam_lm import train_model as train_lm
@@ -14,7 +15,26 @@ from pynn.trainer.adam_s2s_dual import train_model as train_s2s_dual
 def print_model(model):
     model_size = sum(p.numel() for p in model.parameters()) / 1000000.
     print('Model size: %.2fM' % model_size)
-    
+
+def train_s2s_model_memory(model, args, device, n_device=1):
+    dist, verbose = n_device > 1, device == 0
+    tr_data = SpectroDataset(args.train_scp, args.train_target, downsample=args.downsample,
+                             sort_src=False, mean_sub=args.mean_sub, fp16=args.fp16, preload=args.preload,
+                             spec_drop=args.spec_drop, spec_bar=args.spec_bar, spec_ratio=args.spec_ratio,
+                             time_stretch=args.time_stretch, time_win=args.time_win,
+                             threads=2, verbose=verbose)
+    cv_data = SpectroDataset(args.valid_scp, args.valid_target, downsample=args.downsample,
+                             sort_src=False, mean_sub=args.mean_sub, fp16=args.fp16, preload=args.preload,
+                             threads=2, verbose=verbose)
+
+    if dist: tr_data.partition(device, n_device)
+
+    args.n_print = args.n_print // n_device
+    args.b_update = args.b_update // n_device
+
+    datasets = (tr_data, cv_data)
+    train_s2s_memory(model, datasets, args.n_epoch, device, args, fp16=args.fp16, dist=dist)
+
 def train_s2s_model(model, args, device, n_device=1):
     dist, verbose = n_device > 1, device == 0
     tr_data = SpectroDataset(args.train_scp, args.train_target, downsample=args.downsample,

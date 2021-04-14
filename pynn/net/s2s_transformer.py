@@ -84,6 +84,7 @@ class Encoder(nn.Module):
             pos_emb = self.pos.embed(src_mask)
         else:
             pos_seq = torch.arange(0, enc_out.size(1), device=enc_out.device, dtype=enc_out.dtype)
+
             pos_emb = self.pos(pos_seq, enc_out.size(0))
             enc_out = enc_out*self.scale + pos_emb
 

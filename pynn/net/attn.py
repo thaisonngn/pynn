@@ -96,11 +96,11 @@ class MultiHeadedAttention(nn.Module):
 
         return x, attn
 
-    def forward(self, query, key=None, mask=None, scale=1.):
+    def forward(self, query, key=None, mask=None, scale=1., value=None):
         residual = query if self.residual else None
         query = self.norm(query)
         if key is None: key = query
-        value = key
+        if value is None: value = key
 
         q, k, v = self.forward_qkv(query, key, value)
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)

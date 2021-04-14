@@ -187,6 +187,44 @@ def partial_search_multi(model, src, max_node=8, max_len=10, states=[1], len_nor
 
     return enc_out, enc_mask, hypo, prob, sth
 
+def beam_search_memory(model, src_seq, src_mask, tgt_ids_mem, device, max_node=10, max_len=200,
+        init_state=[1], len_norm=True, lm=None, lm_scale=0.5):
+    batch_size = src_seq.size(0)
+    enc_out = model.encode(src_seq, src_mask, tgt_ids_mem)
+
+    beams = [Beam(max_node, init_state, len_norm) for i in range(batch_size)]
+    for step in range(max_len):
+        l = 1 if step == 0 else max_node
+        for k in range(l):
+            seq = [beam.seq(k) for beam in beams]
+            seq = torch.LongTensor(seq).to(device)
+
+            dec_out = model.decode(seq, enc_out)
+            if lm is not None:
+                lm_out = lm.decode(seq)
+                dec_out += lm_out * lm_scale
+
+            probs, tokens = dec_out.topk(max_node, dim=1)
+            probs, tokens = probs.cpu().numpy(), tokens.cpu().numpy()
+
+            for beam, prob, token in zip(beams, probs, tokens):
+                beam.advance(k, prob, token)
+
+        br = True
+        for beam in beams:
+            beam.prune()
+            br = False if not beam.done else br
+        if br: break
+
+    tokens = np.zeros((batch_size, step), dtype="int32")
+    probs = np.zeros((batch_size, step), dtype="float32")
+    for i, beam in enumerate(beams):
+        hypo, prob = beam.best()
+        tokens[i,:] = hypo[1:step+1]
+        probs[i,:] = prob[1:step+1]
+
+    return tokens, probs
+
 def beam_search(model, src_seq, src_mask, device, max_node=10, max_len=200, 
         init_state=[1], len_norm=True, lm=None, lm_scale=0.5):
     batch_size = src_seq.size(0)
