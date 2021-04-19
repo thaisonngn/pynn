@@ -133,19 +133,19 @@ class SpectroDataset(Dataset):
         lst = [(j, utt[3]) for j, utt in enumerate(utts)]
         lst = sorted(lst, key=lambda e : e[1])
 
-        s, j, step = 0, 4, 4
+        s, j, step = 0, 1, 1
         batches = []
         while j <= len(lst):
             bs = j - s
             if lst[j-1][1]*bs < b_input and bs < b_sample:
                 j += step
                 continue
-            if bs > 8: j = s + (bs // 8) * 8
+            #if bs > 8: j = s + (bs // 8) * 8
             batches.append([idx for idx, _ in lst[s:j]])
             s = j
             j += step
         if s < len(lst): batches.append([idx for idx, _ in lst[s:]])
-        return batches
+        return batches #[:20]
 
     def preload_feats(self):
         mats = {}

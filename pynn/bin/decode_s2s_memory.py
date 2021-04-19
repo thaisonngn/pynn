@@ -55,12 +55,11 @@ def printTgt(tgt, sp):
         text = sp.decode_ids(ids)
         print(text)
 
-def printStats(tgt_seq, tgt_seq_st, sp, stats, id, gold, forward, id2):
+def printStats(tgt_seq, tgt_ids_mem, sp, stats, id, gold, forward, id2):
     stats2 = []
     for j, st in enumerate(stats):
-        attnGate, attn = st[:2]
-        gate = F.softmax(attnGate, -1)[:, :, 0][id]
-        samples = attn.argmax(-1).view(tgt_seq.shape[0], tgt_seq.shape[1])[id]
+        gate = F.softmax(st, -1)[:,:,0][id]
+        samples = st.argmax(-1)[id]-1
         stats2.append((gate, samples))
 
     maxGold = max([len(g) for g in gold])
@@ -71,16 +70,17 @@ def printStats(tgt_seq, tgt_seq_st, sp, stats, id, gold, forward, id2):
 
     ids = set()
     ids.add(id2)
-    for i, g, f in zip(range(stats[0][0].shape[1]), gold, forward):
+    for i in range(len(gold)):
         for j in range(len(stats2)):
-            ids.add(int(stats2[j][1][i]))
+            if stats2[j][1][i]!=-1:
+                ids.add(int(stats2[j][1][i]))
 
-    for i in range(len(tgt_seq_st)):
+    for i in range(len(tgt_ids_mem)):
         if i in ids:
             print("%2d" % i + ", Tgt_st", end=": ")
-            printTgt(tgt_seq_st[i:i + 1], sp)
+            printTgt(tgt_ids_mem[i:i + 1], sp)
 
-    for i, g, f in zip(range(stats[0][0].shape[1]), gold, forward):
+    for i, (g, f) in enumerate(zip(gold, forward)):
         print(("gold: %" + str(maxGold) + "s, forward: %" + str(maxForward) + "s,") % (g, f), end=" ")
         for j in range(len(stats2)):
             print("gate: %.2f, s_id: %3d," % (stats2[j][0][i], stats2[j][1][i]), end=" ")
@@ -110,7 +110,7 @@ def encode(self, src_seq, src_mask, tgt_ids_mem):
 
     if self.decoder_mem.rel_pos:
         raise NotImplementedError
-        #pos_emb = self.pos.embed(tgt_emb_mem)
+        # pos_emb = self.pos.embed(tgt_emb_mem)
     else:
         pos_seq = torch.arange(0, tgt_emb_mem.size(1), device=tgt_emb_mem.device, dtype=tgt_emb_mem.dtype)
         pos_emb = self.decoder_mem.pos(pos_seq, tgt_emb_mem.size(0))
@@ -121,32 +121,39 @@ def encode(self, src_seq, src_mask, tgt_ids_mem):
     enc_out_mem = self.encoder_mem(tgt_seq_mem, tgt_mask_mem)[0]
 
     # calc mean
-    enc_out_mem[tgt_ids_mem.eq(0)] = 0
-    enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True)) # n_mem x d_model
+    enc_out_mem[tgt_mask_mem.logical_not()] = 0
+    enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True))  # n_mem x d_model
 
-    return enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, enc_out2, enc_mask2
+    enc_out_mem_mean = torch.cat([self.no_entry_found, enc_out_mem_mean], 0)
 
-def decode(self, tgt_seq, enc_out, label_gate=None, gold=None, inference=True):
+    if not self.encode_values:
+        return enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, enc_out2, enc_mask2
+    else:
+        return enc_out, enc_mask, enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, enc_out2, enc_mask2
+
+
+def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
     enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, enc_out2, enc_mask2 = enc_out
 
-    dec_out_orig = self.decoder2(tgt_seq, enc_out2, enc_mask2)[0]
-    dec_out_mem, mem_attn_outs = self.decoder_mem(tgt_seq, enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean)
+    dec_out_orig = self.decoder(tgt_seq, enc_out2, enc_mask2)[0]
+    dec_out_mem, mem_attn_outs = self.decoder_mem(tgt_seq, enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem,
+                                                  enc_out_mem_mean)
 
-    fp16 = dec_out_orig.dtype == torch.float16
-
-    dec_out_orig = F.softmax(dec_out_orig.to(torch.float32),-1)
+    dec_out_orig = F.softmax(dec_out_orig.to(torch.float32), -1)
     dec_out_mem = F.softmax(dec_out_mem.to(torch.float32), -1)
 
-    if not label_gate is None:
+    if not label_mem is None:
+        label_gate = label_mem.clamp(max=1)
+
         mask = gold.gt(2)
 
         dec_out_orig = self.noise_permute(dec_out_orig, gold, label_gate.eq(1) & mask)
         dec_out_mem = self.noise_permute(dec_out_mem, gold, label_gate.eq(0) & mask)
 
-    gates = torch.cat([F.softmax(a[0].to(torch.float32), -1).detach() for a in mem_attn_outs], -1)
-    gates = F.softmax(self.project(gates if not fp16 else gates.to(torch.float16)).to(torch.float32), -1)
+    gates = torch.cat([F.softmax(a.to(torch.float32), -1)[:, :, 0:1].detach() for a in mem_attn_outs], -1)
+    gates = self.project(gates.to(dec_out_orig.dtype)).to(torch.float32)
 
-    dec_output = gates[:, :, 0:1] * dec_out_orig + gates[:, :, 1:2] * dec_out_mem
+    dec_output = gates * dec_out_orig + (1 - gates) * dec_out_mem
 
     if not inference:
         return dec_output, mem_attn_outs
@@ -232,7 +239,7 @@ if __name__ == '__main__':
 
     id2 = 0
     for id, word in zip(range(len(dataset)), words):
-        for changeStorage in [False, True]:
+        for changeStorage in [True, True]:
             print("Storage new words:", changeStorage)
 
             sample_batched = dataset.collate_fn([dataset[id]])

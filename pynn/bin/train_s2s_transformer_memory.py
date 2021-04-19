@@ -69,11 +69,15 @@ parser.add_argument('--lr', help='learning rate', type=float, default=0.0012)
 parser.add_argument('--grad-norm', help='divide gradient by updated tokens', action='store_true')
 parser.add_argument('--fp16', help='fp16 or not', action='store_true')
 
-parser.add_argument('--pretrained-model', type=str, default="/export/data1/chuber/memory/tf-24x8-bpe4k/epoch-79.ptBaseline")
+parser.add_argument('--pretrained-model', type=str, default="/export/data1/chuber/memory/tf-24x8-bpe4k/epoch-avg.dic")
 parser.add_argument('--bpe-model', type=str, default="/export/data1/chuber/data/bpe_model/m.model")
 parser.add_argument('--n-memory', type=int, default=200)
-parser.add_argument('--version-gate', type=int, default=1)
 parser.add_argument('--n-enc-mem', type=int, default=8)
+parser.add_argument('--n-dec-mem', type=int, default=4)
+parser.add_argument('--n-seq-max-epoch', type=int, default=500000)
+parser.add_argument('--encode-values', action='store_true')
+parser.add_argument('--no-skip-conn', action='store_true')
+parser.add_argument('--version-gate', type=int, default=0)
 
 def create_model(args, device):
     n_enc_head = args.n_head if args.n_enc_head==0 else args.n_enc_head
@@ -97,8 +101,11 @@ def create_model(args, device):
         'enc_drop': args.enc_drop,
         'dec_drop': args.dec_drop,
         'size_memory': args.n_memory,
-        'version_gate': args.version_gate,
-        'n_enc_mem': args.n_enc_mem}
+        'n_enc_mem': args.n_enc_mem,
+        'n_dec_mem': args.n_dec_mem,
+        'encode_values': args.encode_values,
+        'no_skip_conn_mem': args.no_skip_conn,
+        'version_gate': args.version_gate}
     model = TransformerMemory(**params)
     save_object_param(model, params, args.model_path+'/model.cfg')
     return model

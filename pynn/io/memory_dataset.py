@@ -13,6 +13,7 @@ import time
 class MemoryDataset(Dataset):
     def __init__(self, dataset, args, n_sim=[1,2,3], validation=False, fast=False):
         self.dataset = dataset
+
         self.n_sim = n_sim
         self.validation = validation
         self.fast = fast

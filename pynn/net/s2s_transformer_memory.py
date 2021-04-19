@@ -14,7 +14,7 @@ from .memory_layer import DecoderLayerMemory
 class DecoderMemory(nn.Module):
     def __init__(self, n_vocab, d_model, n_layer, n_head, d_inner,
                  rel_pos=False, dropout=0.1, emb_drop=0., layer_drop=0., shared_emb=True,
-                 size_memory=200, version_gate=0):
+                 size_memory=200, no_skip_conn_mem=False, version_gate=0):
 
         super().__init__()
 
@@ -23,6 +23,8 @@ class DecoderMemory(nn.Module):
         self.scale = d_model ** 0.5
         self.emb_drop = nn.Dropout(emb_drop)
         self.rel_pos = rel_pos
+
+        self.no_skip_conn_mem = no_skip_conn_mem
 
         self.layer_stack = nn.ModuleList([
             DecoderLayerMemory(d_model, d_inner, n_head, dropout, rel_pos=rel_pos,
@@ -71,6 +73,9 @@ class DecoderMemory(nn.Module):
                 scale = 1. / (1. - drop_level)
 
             dec_out = (dec_out, pos_emb) if self.rel_pos else dec_out
+            if self.no_skip_conn_mem:
+                mem_attn_out = None
+
             dec_out, mem_attn_out = dec_layer(
                 dec_out, enc_out, slf_mask=slf_mask,
                 dec_enc_mask=attn_mask, scale=scale,
@@ -92,7 +97,7 @@ class TransformerMemory(nn.Module):
             time_ds=1, use_cnn=False, freq_kn=3, freq_std=2,
             dropout=0.1, emb_drop=0., enc_drop=0.0, dec_drop=0.0,
             shared_emb=False, rel_pos=False,
-            size_memory=200, version_gate=0, n_enc_mem=8):
+            size_memory=200, n_enc_mem=8, n_dec_mem=4, encode_values=False, no_skip_conn_mem=False, version_gate=0):
 
         super().__init__()
 
@@ -108,6 +113,8 @@ class TransformerMemory(nn.Module):
             n_layer=n_enc_mem, n_head=n_enc_head, rel_pos=rel_pos,
             embedding=False, emb_vocab=n_vocab, emb_drop=emb_drop,
             time_ds=1, use_cnn=False, dropout=dropout, layer_drop=enc_drop)
+        self.no_entry_found = nn.Parameter(torch.randn(d_model).unsqueeze(0))
+        self.encode_values = encode_values
 
         self.decoder = Decoder(
             n_vocab, d_model=d_model, d_inner=d_inner, n_layer=n_dec,
@@ -115,19 +122,19 @@ class TransformerMemory(nn.Module):
             dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop)
 
         self.decoder_mem = DecoderMemory(
-            n_vocab, d_model=d_model, d_inner=d_inner, n_layer=n_dec,
+            n_vocab, d_model=d_model, d_inner=d_inner, n_layer=n_dec_mem,
             n_head=n_dec_head, shared_emb=shared_emb, rel_pos=False,
             dropout=dropout, emb_drop=emb_drop, layer_drop=0,
-            size_memory=size_memory, version_gate=version_gate)
+            size_memory=size_memory, no_skip_conn_mem=no_skip_conn_mem, version_gate=version_gate)
 
-        self.project = nn.Linear(2*n_dec,2)
+        self.project = nn.Linear(n_dec_mem,1)
         self.n_vocab = n_vocab
 
-    def forward(self, src_seq, src_mask, tgt_seq, tgt_ids_mem, label_gate=None, gold=None, encoding=True, enc_out=None):
+    def forward(self, src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem=None, gold=None, encoding=True, enc_out=None):
         if encoding:
             enc_out = self.encode(src_seq, src_mask, tgt_ids_mem)
 
-        dec_out, mem_attn_outs = self.decode(tgt_seq, enc_out, label_gate, gold, inference=False)
+        dec_out, mem_attn_outs = self.decode(tgt_seq, enc_out, label_mem, gold, inference=False)
         return dec_out, mem_attn_outs, enc_out
 
     def encode(self, src_seq, src_mask, tgt_ids_mem):
@@ -150,32 +157,37 @@ class TransformerMemory(nn.Module):
         enc_out_mem = self.encoder_mem(tgt_seq_mem, tgt_mask_mem)[0]
 
         # calc mean
-        enc_out_mem[tgt_ids_mem.eq(0)] = 0
+        enc_out_mem[tgt_mask_mem.logical_not()] = 0
         enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True)) # n_mem x d_model
 
-        return enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+        enc_out_mem_mean = torch.cat([self.no_entry_found, enc_out_mem_mean], 0)
 
-    def decode(self, tgt_seq, enc_out, label_gate=None, gold=None, inference=True):
+        if not self.encode_values:
+            return enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+        else:
+            return enc_out, enc_mask, enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+
+    def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
         enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = enc_out
 
         dec_out_orig = self.decoder(tgt_seq, enc_out, enc_mask)[0]
         dec_out_mem, mem_attn_outs = self.decoder_mem(tgt_seq, enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean)
 
-        fp16 = dec_out_orig.dtype == torch.float16
-
         dec_out_orig = F.softmax(dec_out_orig.to(torch.float32),-1)
         dec_out_mem = F.softmax(dec_out_mem.to(torch.float32), -1)
 
-        if not label_gate is None:
+        if not label_mem is None:
+            label_gate = label_mem.clamp(max=1)
+
             mask = gold.gt(2)
 
             dec_out_orig = self.noise_permute(dec_out_orig, gold, label_gate.eq(1) & mask)
             dec_out_mem = self.noise_permute(dec_out_mem, gold, label_gate.eq(0) & mask)
 
-        gates = torch.cat([F.softmax(a[0].to(torch.float32), -1).detach() for a in mem_attn_outs], -1)
-        gates = F.softmax(self.project(gates if not fp16 else gates.to(torch.float16)).to(torch.float32), -1)
+        gates = torch.cat([F.softmax(a.to(torch.float32),-1)[:,:,0:1].to(a.dtype).detach() for a in mem_attn_outs], -1)
+        gates = F.sigmoid(self.project(gates).to(torch.float32))
 
-        dec_output = gates[:, :, 0:1] * dec_out_orig + gates[:, :, 1:2] * dec_out_mem
+        dec_output = gates * dec_out_orig + (1-gates) * dec_out_mem
 
         if not inference:
             return dec_output, mem_attn_outs
@@ -212,3 +224,6 @@ class TransformerMemory(nn.Module):
 
         pred = pred.view(b, l_tgt, -1)
         return pred
+
+def printms(s,x):
+    print(s,torch.mean(x).item(),torch.std(x).item())
