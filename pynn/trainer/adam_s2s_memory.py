@@ -132,6 +132,9 @@ def train_epoch(model, data, opt, eps, device, args, b_update, b_sync, n_print,
             torch.cuda.empty_cache()
         if OOM>=10:
             bs_factor *= 0.9
+            if bs_factor<1/1000:
+                print("To small batch size, breaking epoch.")
+                break
             print("Reduced batch size factor to",bs_factor)
             OOM = 0
 
