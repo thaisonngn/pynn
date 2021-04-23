@@ -24,9 +24,10 @@ class MemoryDataset(Dataset):
         self.size_memory = args.n_memory
         self.allowed_start_ids = [i+2 for i in range(args.n_classes-3) if self.sp.id_to_piece(i)[0]=="▁"]
 
-        if self.validation and not fast:
+        if self.validation:
             random.seed(42)
-            self.indices = [self.sample_random(indices) for indices in tqdm(self.dataset.batches)]
+            if not fast:
+                self.indices = [self.sample_random(indices) for indices in tqdm(self.dataset.batches)]
 
     def encode_as_ids(self, label):
         return [1] + [el + 2 for el in self.sp.encode_as_ids(label)] + [2]

@@ -56,56 +56,40 @@ class AttentionMemoryEntry(nn.Module):
     def forward(self, dec_output, tgt_mask, mem_attn_out, enc_out_mem, tgt_emb_mem, tgt_mask_mem):
         dec_output = self.norms[0](dec_output)
 
-        samples = mem_attn_out.argmax(-1)-1  # b x l_tar
+        b, l_tar, _ = mem_attn_out.shape
 
-        b, l_tar = samples.shape
-        indices = torch.arange(b, device=samples.device).view(-1, 1).expand(-1, l_tar).reshape(-1, 1)  # b*l_tar x 1
+        samples = mem_attn_out.argmax(-1).view(-1,1)-1  # b*l_tar x 1
+        indices = torch.arange(b*l_tar,device=samples.device).unsqueeze(-1)  # b*l_tar x 1
 
-        tmp = torch.cat([indices, samples.view(-1, 1)], 1)
+        tmp = torch.cat([indices,samples], 1)
 
         # filter -1´s
-        mask = tmp[:,1].ne(-1)
+        mask = tmp[:, 1].ne(-1)
         if mask.any():
             tmp = tmp[mask]
 
-            # unique
-            tmp, inv = torch.unique(tmp, return_inverse=True, dim=0)
             indices = tmp[:, 0]
             samples2 = tmp[:, 1]
 
-            dec_dec_mask = get_key_pad_mask(seq_k=tgt_mask_mem[samples2], seq_q=tgt_mask[indices])
+            mem_dec_mask = get_key_pad_mask(seq_k=tgt_mask_mem[samples2], seq_q=tgt_mask.view(-1,1)[indices])
 
-            st_attn, _ = self.st_attn(dec_output[indices], enc_out_mem[samples2], mask=dec_dec_mask,
-                                      value=tgt_emb_mem[samples2]) # ? x l_tar x d_model
-
-            #printms(0, st_attn)
+            st_attn, _ = self.st_attn(dec_output.view(b*l_tar,1,-1)[indices], enc_out_mem[samples2], mask=mem_dec_mask,
+                                      value=tgt_emb_mem[samples2])  # ? x 1 x d_model
 
             st_attn = self.pos_ffn(st_attn)
             st_attn = self.norms[1](st_attn)
 
-            # undo unique
-            st_attn = st_attn.gather(0, inv.view(-1, 1, 1).expand(-1, st_attn.shape[1],
-                                                                  st_attn.shape[2]))  # ?? x l_tar x d_model
-
             # undo filter -1´s
-            mask2 = torch.arange(b*l_tar, device=mask.device)[mask].unsqueeze(-1).unsqueeze(-1).expand(-1,l_tar,st_attn.shape[-1])
-            st_attn = torch.zeros(b*l_tar, l_tar, st_attn.shape[-1], device=st_attn.device, dtype=st_attn.dtype).\
-                scatter_(0,mask2,st_attn) # b*l_tar x l_tar x d_model
+            mask2 = torch.arange(b*l_tar, device=mask.device)[mask].unsqueeze(-1).unsqueeze(-1).expand(-1, -1, st_attn.shape[-1])
+            st_attn = torch.zeros(b*l_tar,1,st_attn.shape[-1],device=st_attn.device,dtype=st_attn.dtype).\
+                scatter_(0, mask2, st_attn)  # b*l_tar x 1 x d_model
 
-            st_attn = st_attn.gather(1,
-                                     torch.arange(l_tar, device=samples2.device).view(1, -1, 1).expand(b, -1,
-                                                                                                      st_attn.shape[
-                                                                                                          -1]).reshape(
-                                         b * l_tar, 1, -1)
-                                     ).view(b, l_tar, -1)  # b x l_tar x d_model
+            st_attn = st_attn.view(b, l_tar, -1)  # b x l_tar x d_model
 
             if self.version_gate==0:
                 dec_output = dec_output + st_attn
             elif self.version_gate==1:
-                raise NotImplementedError("Implementation to be checked")
-                gate = F.softmax(mem_attn_out.to(torch.float32),-1).view(-1,mem_attn_out.shape[-1])[samples.view(-1)]\
-                    .reshape((*st_attn.shape[:2],1)).to(st_attn.dtype)
-                dec_output = dec_output + gate * st_attn
+                raise NotImplementedError
 
         dec_output = self.pos_ffn2(dec_output)
         return dec_output
