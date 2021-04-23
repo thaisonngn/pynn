@@ -72,9 +72,10 @@ class MultiHeadedAttention(nn.Module):
 
     def forward_qkv(self, query, key, value):
         n_batch = query.size(0)
+        n_batch2 = key.size(0)
         q = self.w_q(query).view(n_batch, -1, self.h, self.d_k)
-        k = self.w_k(key).view(n_batch, -1, self.h, self.d_k)
-        v = self.w_v(value).view(n_batch, -1, self.h, self.d_k)
+        k = self.w_k(key).view(n_batch2, -1, self.h, self.d_k)
+        v = self.w_v(value).view(n_batch2, -1, self.h, self.d_k)
         q = q.transpose(1, 2)  # (batch, head, time1, d_k)
         k = k.transpose(1, 2)  # (batch, head, time2, d_k)
         v = v.transpose(1, 2)  # (batch, head, time2, d_k)
@@ -96,13 +97,17 @@ class MultiHeadedAttention(nn.Module):
 
         return x, attn
 
-    def forward(self, query, key=None, mask=None, scale=1., value=None):
+    def forward(self, query, key=None, mask=None, scale=1., value=None, samples=None):
         residual = query if self.residual else None
         query = self.norm(query)
         if key is None: key = query
         if value is None: value = key
 
         q, k, v = self.forward_qkv(query, key, value)
+        if samples is not None:
+            k = k[samples]
+            v = v[samples]
+            mask = mask[samples]
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
 
         x, attn = self.forward_attention(v, scores, mask)

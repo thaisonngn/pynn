@@ -68,13 +68,15 @@ class AttentionMemoryEntry(nn.Module):
         if mask.any():
             tmp = tmp[mask]
 
-            indices = tmp[:, 0]
+            indices2 = tmp[:, 0]
             samples2 = tmp[:, 1]
 
-            mem_dec_mask = get_key_pad_mask(seq_k=tgt_mask_mem[samples2], seq_q=tgt_mask.view(-1,1)[indices])
+            samples3, inv = torch.unique(samples2, return_inverse=True)
 
-            st_attn, _ = self.st_attn(dec_output.view(b*l_tar,1,-1)[indices], enc_out_mem[samples2], mask=mem_dec_mask,
-                                      value=tgt_emb_mem[samples2])  # ? x 1 x d_model
+            mem_dec_mask = get_key_pad_mask(seq_k=tgt_mask_mem[samples3], seq_q=tgt_mask.view(-1,1)[indices2])
+
+            st_attn, _ = self.st_attn(dec_output.view(b*l_tar,1,-1)[indices2], enc_out_mem[samples3], mask=mem_dec_mask,
+                                      value=tgt_emb_mem[samples3], samples=inv)  # ? x 1 x d_model
 
             st_attn = self.pos_ffn(st_attn)
             st_attn = self.norms[1](st_attn)
