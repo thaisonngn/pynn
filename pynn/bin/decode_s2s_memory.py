@@ -131,11 +131,10 @@ def encode(self, src_seq, src_mask, tgt_ids_mem):
     else:
         return enc_out, enc_mask, enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, enc_out2, enc_mask2
 
-
 def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
     enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, enc_out2, enc_mask2 = enc_out
 
-    dec_out_orig = self.decoder(tgt_seq, enc_out2, enc_mask2)[0]
+    dec_out_orig = self.decoder2(tgt_seq, enc_out2, enc_mask2)[0]
     dec_out_mem, mem_attn_outs = self.decoder_mem(tgt_seq, enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem,
                                                   enc_out_mem_mean)
 
@@ -150,8 +149,8 @@ def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
         dec_out_orig = self.noise_permute(dec_out_orig, gold, label_gate.eq(1) & mask)
         dec_out_mem = self.noise_permute(dec_out_mem, gold, label_gate.eq(0) & mask)
 
-    gates = torch.cat([F.softmax(a.to(torch.float32), -1)[:, :, 0:1].detach() for a in mem_attn_outs], -1)
-    gates = self.project(gates.to(dec_out_orig.dtype)).to(torch.float32)
+    gates = torch.cat([F.softmax(a.to(torch.float32), -1)[:, :, 0:1].to(a.dtype).detach() for a in mem_attn_outs], -1)
+    gates = F.sigmoid(self.project(gates).to(torch.float32))
 
     dec_output = gates * dec_out_orig + (1 - gates) * dec_out_mem
 
@@ -239,7 +238,7 @@ if __name__ == '__main__':
 
     id2 = 0
     for id, word in zip(range(len(dataset)), words):
-        for changeStorage in [True, True]:
+        for changeStorage in [False, True]:
             print("Storage new words:", changeStorage)
 
             sample_batched = dataset.collate_fn([dataset[id]])
