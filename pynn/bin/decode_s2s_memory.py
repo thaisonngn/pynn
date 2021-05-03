@@ -8,6 +8,7 @@ import time
 import argparse
 import sentencepiece as spm
 
+import copy
 import torch
 import torch.nn.functional as F
 
