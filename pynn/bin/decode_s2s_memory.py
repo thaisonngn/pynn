@@ -212,6 +212,11 @@ if __name__ == '__main__':
     cv_data.initialize(b_input=2500, b_sample=64)
     print("Loading ...")
     cv_data = MemoryDataset(cv_data, args, validation=True, fast=True)
+
+    # get storage data
+    _, _, _, tgt_ids_mem_save, _ = cv_data[42]
+    tgt_ids_mem_save = tgt_ids_mem_save.to(device)
+
     print("Loading ...")
 
     # ---------- DECODE NEW WORDS TESTSET --------------
@@ -244,9 +249,7 @@ if __name__ == '__main__':
             sample_batched = dataset.collate_fn([dataset[id]])
             src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), sample_batched)
 
-            # get storage data
-            _, _, _, tgt_ids_mem, _ = cv_data[42]
-            tgt_ids_mem = tgt_ids_mem.to(device)
+            tgt_ids_mem = copy.deepcopy(tgt_ids_mem_save)
 
             # add part of data to decode to storage
             if changeStorage:
@@ -274,9 +277,6 @@ if __name__ == '__main__':
 
     # ------- DECODE TED TEST SET ----------------
 
-    _, _, _, tgt_ids_mem, _ = cv_data[42]
-    tgt_ids_mem = tgt_ids_mem.to(device)
-
     reader = SpectroDataset(args.data_scp, mean_sub=args.mean_sub, fp16=args.fp16,
                             downsample=args.downsample)
     since = time.time()
@@ -287,7 +287,7 @@ if __name__ == '__main__':
             if not utts: break
             #print("Decoding shape "+str(seq.shape))
             seq, mask = seq.to(device), mask.to(device)
-            hypos, scores = beam_search_memory(model, seq, mask, tgt_ids_mem, device, args.beam_size,
+            hypos, scores = beam_search_memory(model, seq, mask, copy.deepcopy(tgt_ids_mem_save), device, args.beam_size,
                                                args.max_len, len_norm=args.len_norm, lm=lm, lm_scale=args.lm_scale)
             hypos, scores = hypos.tolist(), scores.tolist()
             write_hypo(hypos, scores, fout, utts, dic, word_dic, args.space, args.format)
