@@ -77,9 +77,9 @@ class Seq2Seq(nn.Module):
         return self.encoder(src_seq, src_mask, hid)
 
     def decode(self, enc_out, enc_mask, tgt_seq, hid=None):
-        logit, _, hid = self.decoder(tgt_seq, enc_out, enc_mask, hid)
+        logit, attn, hid = self.decoder(tgt_seq, enc_out, enc_mask, hid)
         logit = logit[:,-1,:].squeeze(1)
-        return torch.log_softmax(logit, -1), hid
+        return torch.log_softmax(logit, -1), attn, hid
 
     def decode_s2s(self, enc_out, enc_mask, tgt_seq):
         logit = self.decoder(tgt_seq, enc_out, enc_mask)[0]

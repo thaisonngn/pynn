@@ -15,7 +15,7 @@ class PositionalEmbedding(nn.Module):
         super(PositionalEmbedding, self).__init__()
 
         inv_freq = 1. / (10000 ** (torch.arange(0.0, d_model, 2.0) / d_model))
-        self.register_buffer('inv_freq', inv_freq)
+        self.register_buffer('inv_freq', inv_freq, persistent=True)
 
     def embed(self, mask):
         seq_len = mask.sum(-1)
@@ -48,7 +48,7 @@ class SinusoidPosition(nn.Module):
                 pe[pos, i] = math.sin(pos / (10000**(i/d_model)))
                 pe[pos, i+1] = math.cos(pos / (10000**((i+1)/d_model)))
 
-        self.register_buffer('pe', pe.unsqueeze(0))
+        self.register_buffer('pe', pe.unsqueeze(0), persistent=False)
 
     def forward(self, seq):
         bsz, seq_len = seq.size(0), seq.size(1)

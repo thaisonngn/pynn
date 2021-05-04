@@ -18,7 +18,7 @@ class SpectroDataset(Dataset):
                  verbose=True, sek=True, sort_src=False, pack_src=False,
                  downsample=1, preload=False, threads=4, fp16=False, 
                  spec_drop=False, spec_bar=2, spec_ratio=0.4,
-                 time_stretch=False, time_win=10000, mean_sub=False):
+                 time_stretch=False, time_win=10000, mean_sub=False, var_norm=False):
         self.scp_path = scp_path     # path to the .scp file
         self.label_path = label_path # path to the label file
         self.paired_label = paired_label
@@ -84,8 +84,8 @@ class SpectroDataset(Dataset):
             if utt_id == '' or utt_id not in utts: continue
 
             if self.paired_label:
-                sp = tokens.index('|')
-                lb1 = [int(token) for token in tokens[:sp]]
+                sp = tokens.index('|', 1)
+                lb1 = [int(token) for token in tokens[1:sp]]
                 lb1 = [1] + [el+2 for el in lb1] + [2] if self.sek else lb1
                 lb2 = [int(token) for token in tokens[sp+1:]]
                 lb2 = [1] + [el+2 for el in lb2] + [2] if self.sek else lb2
@@ -310,6 +310,9 @@ class SpectroDataset(Dataset):
     def mean_sub_inst(self, inst):
         return inst - inst.mean(axis=0, keepdims=True)
 
+    def std_norm_inst(self, inst):
+        return (inst - inst.mean(axis=0, keepdims=True)) / inst.std(axis=0, keepdims=True)
+
     def down_sample_inst(self, feats, cf=4):
         feats = feats[:(feats.shape[0]//cf)*cf,:]
         return feats.reshape(feats.shape[0]//cf, feats.shape[1]*cf)
@@ -319,6 +322,7 @@ class SpectroDataset(Dataset):
         bar, ratio = self.spec_bar, self.spec_ratio
         for inst in src:
             inst = self.mean_sub_inst(inst) if self.mean_sub else inst
+            #inst = self.std_norm_inst(inst) if self.mean_sub else inst
             inst = self.time_stretch_inst(inst, win=self.time_win) if self.time_stretch else inst
             inst = self.timefreq_drop_inst(inst, num=bar, time_drop=ratio) if self.spec_drop else inst            
             inst = self.down_sample_inst(inst, self.downsample) if self.downsample > 1 else inst
@@ -362,7 +366,7 @@ class SpectroDataset(Dataset):
             labels = np.array([inst + [0] * (max_len - len(inst)) for inst in tgt])
             labels = (torch.LongTensor(labels),)
  
-        return (*labels) 
+        return (*labels,) 
 
     def collate_fn(self, batch):
         src, tgt = zip(*batch)

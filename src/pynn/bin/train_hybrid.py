@@ -22,6 +22,7 @@ parser.add_argument('--valid-scp', help='path to validation scp', required=True)
 parser.add_argument('--valid-target', help='path to validation target', required=True)
 
 parser.add_argument('--n-classes', type=int, required=True)
+parser.add_argument('--n-target', type=int, default=0)
 parser.add_argument('--d-enc', type=int, default=256)
 parser.add_argument('--d-dec', type=int, default=320)
 parser.add_argument('--d-inner', type=int, default=0)
@@ -29,7 +30,7 @@ parser.add_argument('--n-head', type=int, default=8)
 parser.add_argument('--n-enc', type=int, default=4)
 parser.add_argument('--n-dec', type=int, default=2)
 parser.add_argument('--d-input', type=int, default=40)
-parser.add_argument('--n-kernel', type=int, default=31)
+parser.add_argument('--n-kernel', type=int, default=25)
 parser.add_argument('--d-project', type=int, default=0)
 
 parser.add_argument('--time-ds', help='downsample in time axis', type=int, default=1)
@@ -57,7 +58,7 @@ parser.add_argument('--time-win', help='time stretch window', type=int, default=
 parser.add_argument('--preload', help='preloading ark matrix into memory', action='store_true')
 parser.add_argument('--model-path', help='model saving path', default='model')
 
-parser.add_argument('--n-epoch', type=int, default=50)
+parser.add_argument('--n-epoch', type=int, default=100)
 parser.add_argument('--n-save', type=int, default=5)
 parser.add_argument('--n-warmup', help='warm-up steps', type=int, default=6000)
 parser.add_argument('--n-const', help='constant steps', type=int, default=0)
@@ -66,7 +67,7 @@ parser.add_argument('--b-input', help='total input per batch', type=int, default
 parser.add_argument('--b-sample', help='maximum samples per batch', type=int, default=64)
 parser.add_argument('--b-update', help='tokens per update', type=int, default=12000)
 parser.add_argument('--b-sync', help='steps per update', type=int, default=0)
-parser.add_argument('--mix-loss', help='2 cond loss loss scale', type=float, default=0.4)
+parser.add_argument('--alpha', help='scale loss', type=float, default=0.4)
 parser.add_argument('--lr', help='learning rate', type=float, default=1.0)
 parser.add_argument('--grad-norm', help='divide gradient by updated tokens', action='store_true')
 parser.add_argument('--fp16', help='fp16 or not', action='store_true')
@@ -74,6 +75,7 @@ parser.add_argument('--fp16', help='fp16 or not', action='store_true')
 def create_model(args, device):
     params = {
         'n_classes': args.n_classes,
+        'n_target': args.n_target,
         'd_input': args.d_input,
         'd_enc': args.d_enc,
         'd_dec': args.d_dec,
@@ -99,7 +101,8 @@ def create_model(args, device):
 def train(device, args):
     model = create_model(args, device)
     print_model(model)
-    train_hybrid_model(model, args, device)
+    dual_tgt = (args.n_target > 0)
+    train_hybrid_model(model, args, device, dual_tgt=dual_tgt)
 
 def train_distributed(device, gpus, args):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -108,15 +111,15 @@ def train_distributed(device, gpus, args):
     torch.manual_seed(0)
 
     model = create_model(args, device)
+    dual_tgt = (args.n_target > 0)
     if device == 0: print_model(model)
-    train_hybrid_model(model, args, device, gpus)
+    train_hybrid_model(model, args, device, gpus, dual_tgt)
 
     dist.destroy_process_group()
     
 if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
-    torch.autograd.set_detect_anomaly(True)
 
     if torch.cuda.device_count() > 1:
         gpus = torch.cuda.device_count()

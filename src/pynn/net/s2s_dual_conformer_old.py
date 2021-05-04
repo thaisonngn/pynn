@@ -14,7 +14,7 @@ from .conformer_layer import EncoderLayer
 from .transformer_layer import DecoderLayer
 
 class Encoder(nn.Module):
-    def __init__(self, d_input, d_model, d_inner, n_layer, n_head, n_kernel=25, rel_pos=True,
+    def __init__(self, d_input, d_model, d_inner, n_layer, n_head, n_kernel=25,
             dropout=0.1, layer_drop=0., time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super().__init__()
 
@@ -29,11 +29,9 @@ class Encoder(nn.Module):
 
         self.emb = XavierLinear(d_input, d_model)
         self.pos = PositionalEmbedding(d_model)
-        self.rel_pos = rel_pos
-        self.drop = nn.Dropout(dropout)
 
         self.layer_stack = nn.ModuleList([
-            EncoderLayer(d_model, d_inner, n_head, n_kernel, dropout, rel_pos)
+            EncoderLayer(d_model, d_inner, n_head, n_kernel, dropout)
             for _ in range(n_layer)])
 
         self.norm = nn.LayerNorm(d_model)
@@ -47,14 +45,9 @@ class Encoder(nn.Module):
             src_seq = src_seq.permute(0, 2, 1, 3).contiguous()
             src_seq = src_seq.view(src_seq.size(0), src_seq.size(1), -1)
             if src_mask is not None: src_mask = src_mask[:, 0:src_seq.size(1)*4:4]
+
         enc_out = src_seq if self.emb is None else self.emb(src_seq)
-        if self.rel_pos:
-            pos_emb = self.pos.embed(src_mask)
-        else:
-            pos_seq = torch.arange(0, enc_out.size(1), device=enc_out.device, dtype=enc_out.dtype)
-            pos_emb = self.pos(pos_seq, enc_out.size(0))
-            enc_out = self.drop(enc_out + pos_emb)
-            pos_emb = None
+        pos_emb = self.pos.embed(src_mask)
  
         # -- Prepare masks
         slf_mask = src_mask.eq(0)
@@ -116,15 +109,15 @@ class Decoder(nn.Module):
             dec_out, attn = dec_layer(
                 dec_out, enc_out, slf_mask=slf_mask,
                 dec_enc_mask=attn_mask, scale=scale)
-                        
-        dec_out = self.layer_norm(dec_out)
-        dec_out = self.output(dec_out)
         
-        return dec_out, attn
+        emb_out = self.layer_norm(dec_out)
+        dec_out = self.output(emb_out)
+        
+        return dec_out, emb_out
 
 class Conformer(nn.Module):
-    def __init__(self, d_input, n_classes, d_enc=256, d_inner=0, n_enc=4, n_kernel=25,
-                 d_dec=320, n_dec=2, n_head=8, shared_emb=True,
+    def __init__(self, d_input, n_dec_vocab, n_tran_vocab, d_enc=256, d_inner=0, n_enc=4,
+                 n_kernel=25, d_dec=320, n_dec=2, n_head=8, shared_emb=True,
                  dropout=0.1, emb_drop=0.1, enc_drop=0., dec_drop=0.,
                  time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super().__init__()
@@ -133,7 +126,9 @@ class Conformer(nn.Module):
         self.encoder = Encoder(d_input, d_enc, d_inner, n_enc, n_head, n_kernel=n_kernel,
                             dropout=dropout, layer_drop=enc_drop,
                             time_ds=time_ds, use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std)
-        self.decoder = Decoder(n_classes, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
+        self.decoder = Decoder(n_dec_vocab, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
+                            dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop)
+        self.trancoder = Decoder(n_tran_vocab, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
                             dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop)
 
     def attend(self, src_seq, src_mask, tgt_seq):
@@ -141,33 +136,24 @@ class Conformer(nn.Module):
         logit, attn = self.decoder(tgt_seq, enc_out, src_mask)[0:2]
         return logit, attn, src_mask
 
-    def forward(self, src_seq, src_mask, tgt_seq, encoding=True):
+    def forward(self, src_seq, src_mask, tgt_pre, tgt_pos, encoding=True):
         if encoding:
             enc_out, enc_mask = self.encoder(src_seq, src_mask)[0:2]
         else:
             enc_out, enc_mask = src_seq, src_mask
 
-        dec_out = self.decoder(tgt_seq, enc_out, enc_mask)[0]
-        return dec_out, enc_out, enc_mask
+        dec_out, emb_out = self.decoder(tgt_pre, enc_out, enc_mask)[0:2]
+        tran_out = self.trancoder(tgt_pos, emb_out, tgt_pre.gt(0))[0]
+        return dec_out, tran_out, enc_out, src_mask
 
     def encode(self, src_seq, src_mask, hid=None):
         return self.encoder(src_seq, src_mask, hid)
 
     def decode(self, enc_out, enc_mask, tgt_seq):
-        logit, attn = self.decoder(tgt_seq, enc_out, enc_mask)
+        logit, emb_out = self.decoder(tgt_seq, enc_out, enc_mask)[0:2]
         logit = logit[:,-1,:].squeeze(1)
-        return torch.log_softmax(logit, -1), attn
+        return torch.log_softmax(logit, -1), emb_out
 
-    def coverage(self, enc_out, enc_mask, tgt_seq, attn=None):
-        if attn is None:
-            attn = self.decoder(tgt_seq, enc_out, enc_mask)[1]
-        attn = attn.mean(dim=1).sum(dim=1)
-        cov = attn.gt(0.5).float().sum(dim=1)
-        return cov
-
-    def get_attn(self, enc_out, enc_mask, tgt_seq):
-        return self.decoder(tgt_seq, enc_out, enc_mask)[1]
-        
-    def get_logit(self, enc_out, enc_mask, tgt_seq):
-        logit = self.decoder(tgt_seq, enc_out, enc_mask)[0]
+    def trancode(self, enc_out, enc_mask, emb_out, emb_mask, tgt_seq):
+        logit = self.trancoder(tgt_seq, emb_out, emb_mask)[0]
         return torch.log_softmax(logit, -1)

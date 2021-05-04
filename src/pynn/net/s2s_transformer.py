@@ -21,6 +21,8 @@ class Encoder(nn.Module):
         if embedding:
             self.emb = nn.Embedding(emb_vocab, d_input, padding_idx=0)
             self.emb_drop = nn.Dropout(emb_drop)
+        else:
+            self.emb = None
 
         self.time_ds = time_ds
         if use_cnn:
@@ -30,7 +32,7 @@ class Encoder(nn.Module):
             d_input = ((((d_input - freq_kn) // freq_std + 1) - freq_kn) // freq_std + 1)*32
         else:
             self.cnn = None
-        
+
         self.project = XavierLinear(d_input, d_model) if d_input!=d_model else None
         self.pos = PositionalEmbedding(d_model)
         self.scale = d_model**0.5
@@ -68,7 +70,7 @@ class Encoder(nn.Module):
             x = x[:, :l, :]
             src_seq = x.view(x.size(0), -1, x.size(2)*ds)
             if src_mask is not None: src_mask = src_mask[:, 0:src_seq.size(1)*ds:ds]
-                
+
         if self.cnn is not None:
             src_seq = src_seq.unsqueeze(1)
             src_seq = self.cnn(src_seq)
@@ -77,6 +79,7 @@ class Encoder(nn.Module):
             if src_mask is not None: src_mask = src_mask[:, 0:src_seq.size(1)*4:4]
 
         enc_out = self.project(src_seq) if self.project is not None else src_seq
+
         if self.rel_pos:
             pos_emb = self.pos.embed(src_mask)
         else:
@@ -169,7 +172,7 @@ class Decoder(nn.Module):
 class Transformer(nn.Module):
     def __init__(
             self,
-            n_vocab=1000, d_input=40, d_model=512, d_inner=2048,
+            n_vocab=1000, n_emb=0, d_input=40, d_model=512, d_inner=2048,
             n_enc=8, n_enc_head=8, n_dec=4, n_dec_head=8,
             time_ds=1, use_cnn=False, freq_kn=3, freq_std=2,
             dropout=0.1, emb_drop=0., enc_drop=0.0, dec_drop=0.0,
@@ -180,7 +183,8 @@ class Transformer(nn.Module):
         self.encoder = Encoder(
             d_input=d_input, d_model=d_model, d_inner=d_inner,
             n_layer=n_enc, n_head=n_enc_head, rel_pos=rel_pos,
-            time_ds=time_ds,use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std,
+            embedding=(n_emb>0), emb_vocab=n_emb, emb_drop=emb_drop,
+            time_ds=time_ds, use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std,
             dropout=dropout, layer_drop=enc_drop)
 
         self.decoder = Decoder(
@@ -194,13 +198,19 @@ class Transformer(nn.Module):
         else:
             enc_out, enc_mask = src_seq, src_mask
         dec_out = self.decoder(tgt_seq, enc_out, enc_mask)[0]
-        return dec_out, enc_out, src_mask
+        return dec_out, enc_out, enc_mask
         
     def encode(self, src_seq, src_mask):
         return self.encoder(src_seq, src_mask)
 
-    def decode(self, enc_out, src_mask, tgt_seq):
-        dec_out = self.decoder(tgt_seq, enc_out, src_mask)[0]
+    def decode(self, enc_out, enc_mask, tgt_seq):
+        dec_out, attn = self.decoder(tgt_seq, enc_out, enc_mask)
         dec_out = dec_out[:,-1,:].squeeze(1)
-        return torch.log_softmax(dec_out, -1), None
+        return torch.log_softmax(dec_out, -1), attn
 
+    def coverage(self, enc_out, enc_mask, tgt_seq, attn=None):
+        if attn is None:
+            attn = self.decoder(tgt_seq, enc_out, enc_mask)[1]
+        attn = attn.mean(dim=1).sum(dim=1)
+        cov = attn.gt(0.5).float().sum(dim=1)
+        return cov

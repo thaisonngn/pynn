@@ -131,10 +131,10 @@ class TextPairDataset(Dataset):
             if sp < 1: continue
             
             src = [int(token) for token in tokens[:sp]]
-            src = [el+2 for el in src] + [2] if self.src_sek else src
+            src = [1] + [el+2 for el in src] + [2] if self.src_sek else src
 
             tgt = [int(token) for token in tokens[sp+1:]]
-            tgt = [el+2 for el in tgt] + [2] if self.tgt_sek else tgt
+            tgt = [1] + [el+2 for el in tgt] + [2] if self.tgt_sek else tgt
             seqs.append([src, tgt])
         
         self.print('%d label sequences loaded.' % len(seqs))

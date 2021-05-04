@@ -12,7 +12,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from pynn.util import save_object_param
-from pynn.net.s2s_dual_conformer import Conformer
+from pynn.net.s2s_dual_conformer_new import Conformer
 from pynn.bin import print_model, train_s2s_dual_model
 
 parser = argparse.ArgumentParser(description='pynn')

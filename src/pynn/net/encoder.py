@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from . import XavierLinear
 from .s2s_transformer import Encoder as AttnEncoder
+from .s2s_conformer import Encoder as ConformerEncoder
 from .s2s_lstm import Encoder as LSTMEncoder
 
 class SelfAttnNet(nn.Module):
@@ -43,6 +44,30 @@ class SelfAttnNet(nn.Module):
         tgt = tgt[:, 1:-1].contiguous()
         logit, mask = self.forward(seq, mask)
         return logit, mask, logit, tgt
+
+class ConformerNet(nn.Module):
+    def __init__(self, n_vocab, d_input, d_model, d_inner=0, n_head=8, n_layer=4, rel_pos=False,
+            d_project=0, use_cnn=False, time_ds=1, dropout=0.2, layer_drop=0.):
+        super().__init__()
+        d_inner = d_model*4 if d_inner==0 else d_inner
+        self.encoder = ConformerEncoder(d_input, d_model, d_inner, n_layer, n_head, rel_pos=rel_pos,
+                                   use_cnn=use_cnn, time_ds=time_ds, dropout=dropout, layer_drop=layer_drop)
+        d_project = d_model if d_project==0 else d_project
+        self.project = None if d_project==d_model else XavierLinear(d_model, d_project)
+        self.output = nn.Linear(d_project, n_vocab, bias=True)
+
+    def forward(self, seq, mask=None):
+        out, mask = self.encoder(seq, mask)[0:2]
+        out = self.project(out) if self.project is not None else out
+        out = self.output(out)
+        return out, mask
+
+    def decode(self, x, mask=None):
+        logit, mask = self.forward(x, mask)
+        return torch.log_softmax(logit, -1), mask
+
+    def encode(self, seq, mask, hid=None):
+        return self.encoder(seq, mask)
 
 class LSTMNet(nn.Module):
     def __init__(self, n_vocab, d_input, d_model, d_inner=0, n_head=8, n_layer=4, d_project=0,

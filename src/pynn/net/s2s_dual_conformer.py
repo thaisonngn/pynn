@@ -81,7 +81,7 @@ class Decoder(nn.Module):
         self.layer_norm = nn.LayerNorm(d_model)
         self.layer_drop = layer_drop
             
-    def forward(self, tgt_seq, enc_out, enc_mask, hid=None):
+    def forward(self, tgt_seq, enc_out, enc_mask):
         lt = tgt_seq.size(1)
         dec_out = self.emb(tgt_seq) * self.scale
         pos_seq = torch.arange(0, lt, device=enc_out.device, dtype=enc_out.dtype)
@@ -113,7 +113,7 @@ class Decoder(nn.Module):
         emb_out = self.layer_norm(dec_out)
         dec_out = self.output(emb_out)
         
-        return dec_out, emb_out, hid
+        return dec_out, attn, emb_out
 
 class Conformer(nn.Module):
     def __init__(self, d_input, n_dec_vocab, n_tran_vocab, d_enc=256, d_inner=0, n_enc=4,
@@ -142,21 +142,30 @@ class Conformer(nn.Module):
         else:
             enc_out, enc_mask = src_seq, src_mask
 
-        dec_out, emb_out = self.decoder(tgt_pre, enc_out, enc_mask)[0:2]
-        tran_out = self.trancoder(tgt_pos, emb_out, tgt_pre.gt(0))[0]
+        dec_out = self.decoder(tgt_pre, enc_out, enc_mask)[0]
+        tran_out = self.trancoder(tgt_pos, enc_out, enc_mask)[0]
         return dec_out, tran_out, enc_out, src_mask
 
     def encode(self, src_seq, src_mask, hid=None):
         return self.encoder(src_seq, src_mask, hid)
 
-    def decode(self, enc_out, enc_mask, tgt_seq, hid=None):
-        logit, attn, hid = self.decoder(tgt_seq, enc_out, enc_mask, hid)
+    def decode(self, enc_out, enc_mask, tgt_seq):
+        logit, attn, emb_out = self.decoder(tgt_seq, enc_out, enc_mask)
         logit = logit[:,-1,:].squeeze(1)
-        return torch.log_softmax(logit, -1), hid
+        return torch.log_softmax(logit, -1), attn, emb_out
 
-    def get_attn(self, enc_out, enc_mask, tgt_seq):
-        return self.decoder(tgt_seq, enc_out, enc_mask)[1]
-        
-    def get_logit(self, enc_out, enc_mask, tgt_seq):
-        logit = self.decoder(tgt_seq, enc_out, enc_mask)[0]
+    def decode_(self, enc_out, enc_mask, tgt_seq):
+        logit, attn = self.trancoder(tgt_seq, enc_out, enc_mask)[0:2]
+        logit = logit[:,-1,:].squeeze(1)
+        return torch.log_softmax(logit, -1), attn
+
+    def coverage(self, enc_out, enc_mask, tgt_seq, attn=None):
+        if attn is None:
+            attn = self.decoder(tgt_seq, enc_out, enc_mask)[1]
+        attn = attn.mean(dim=1).sum(dim=1)
+        cov = attn.gt(0.5).float().sum(dim=1)
+        return cov
+
+    def trancode(self, enc_out, enc_mask, emb_out, emb_mask, tgt_seq):
+        logit = self.trancoder(tgt_seq, enc_out, enc_mask)[0]
         return torch.log_softmax(logit, -1)

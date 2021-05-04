@@ -51,9 +51,9 @@ if __name__ == '__main__':
     since = time.time()
     fout = open(args.output, 'w')
     with torch.no_grad():
-        j = 0
+        start = 0
         while True:
-            seqs = data[j: j+bs]
+            seqs = data[start: start+bs]
             if len(seqs) == 0: break
             max_len = max(len(inst) for inst in seqs)
             src = np.array([inst + [0] * (max_len - len(inst)) for inst in seqs])
@@ -88,7 +88,7 @@ if __name__ == '__main__':
                     hypo.append(word)
 
                 fout.write(' '.join(hypo) + '\n')
-            j += bs
+            start += bs
              
     fout.close()
     time_elapsed = time.time() - since

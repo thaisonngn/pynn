@@ -36,6 +36,5 @@ if __name__ == '__main__':
             img = F.interpolate(img.view(1, 1, img.size(0), img.size(1)), size=size)
             img = img.squeeze(0).squeeze(0)
         img = img.numpy()
-        fig = plt.figure()
         plt.imshow(img.T)
         plt.savefig('%s.png' % utt)

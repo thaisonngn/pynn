@@ -105,7 +105,6 @@ class Decoder(nn.Module):
     def forward(self, dec_seq, enc_out, enc_mask, hid=None):
         dec_emb = self.emb(dec_seq) * self.scale
         dec_emb = self.emb_drop(dec_emb)
-        
         if self.pack and dec_seq.size(0) > 1 and dec_seq.size(1) > 1:
             lengths = dec_seq.gt(0).sum(-1); #lengths[0] = dec_seq.size(1)
             dec_in = pack_padded_sequence(dec_emb, lengths.cpu(), batch_first=True, enforce_sorted=False)
@@ -165,7 +164,14 @@ class Seq2Seq(nn.Module):
     def decode(self, enc_out, enc_mask, tgt_seq, hid=None):
         logit, attn, hid = self.decoder(tgt_seq, enc_out, enc_mask, hid)
         logit = logit[:,-1,:].squeeze(1)
-        return torch.log_softmax(logit, -1), hid
+        return torch.log_softmax(logit, -1), attn, hid
+
+    def coverage(self, enc_out, enc_mask, tgt_seq, attn=None):
+        if attn is None:
+            attn = self.decoder(tgt_seq, enc_out, enc_mask)[1]
+        attn = attn.mean(dim=1).sum(dim=1)
+        cov = attn.gt(0.5).float().sum(dim=1)
+        return cov
 
     def get_attn(self, enc_out, enc_mask, tgt_seq):
         return self.decoder(tgt_seq, enc_out, enc_mask)[1]

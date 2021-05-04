@@ -34,6 +34,11 @@ parser.add_argument('--blank-scale', help='blank scale', type=float, default=1.0
 parser.add_argument('--max-len', help='max len', type=int, default=200)
 parser.add_argument('--space', help='space token', type=str, default='<space>')
 
+def hide_axis(ax, label=None):
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    if label: ax.set_ylabel(label)
+
 if __name__ == '__main__':
     args = parser.parse_args()
 
@@ -84,10 +89,16 @@ if __name__ == '__main__':
                         
             attn, logit = attn.cpu(), logit.cpu()
             #print(greedy_search(logit)[0])
-
-            fig = plt.figure()
-            plt.subplot(311)
-            plt.imshow(attn.squeeze(0))
+                     
+            img = seq[0].cpu().numpy()
+            hide_axis(plt.subplot(411))
+            ax = plt.subplot(411)
+            ax.get_yaxis().set_visible(False)
+            ax.xaxis.tick_top()
+            plt.imshow(img.T, aspect="auto")
+        
+            hide_axis(plt.subplot(412))
+            plt.imshow(attn.squeeze(0), aspect="auto")
 
             probs, tgt = logit.squeeze(0), tgt.squeeze(0).cpu()
             #alg = greedy_align(probs.log(), tgt)
@@ -97,22 +108,26 @@ if __name__ == '__main__':
                 print(tgt.tolist())
                 print([a[0] for a in alg])
             probs = probs.transpose(1, 0)
+            #img = probs[[0] + tgt.tolist()]
             img = probs[tgt]
-            plt.subplot(312)
-            plt.imshow(img)
+            hide_axis(plt.subplot(413))
+            plt.imshow(img, aspect="auto")
 
             #print([a[0] for a in alg])
+            #img = probs[tgt]
             for j, (tk, st, et) in enumerate(alg):
                 #print('%s %d %d' % (dic[tk-2], st*4, et*4))
                 #print('%s %d %d' % (tk, st*4, et*4))
                 img[j][0:st] = 0.
                 img[j][et:-1] = 0.
-            plt.subplot(313)
-            plt.imshow(img)
+            hide_axis(plt.subplot(414))
+            plt.imshow(img, aspect="auto")
 
             if dic is not None:
                 hypo = [dic[token-2].replace(args.space, '') for token in hypo]
-            plt.title(' '.join(map(str, hypo)), fontsize=8)
+            plt.title(' '.join(map(str, hypo)), fontsize=10, y=-.4)
             #plt.imshow(img)
 
+            plt.subplots_adjust(left=0.125, bottom=0.1, right=0.9, top=0.9, wspace=0.2, hspace=0.35)
+                    
             plt.savefig('%s.png' % utt)

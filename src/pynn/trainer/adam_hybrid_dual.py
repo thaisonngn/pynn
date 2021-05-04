@@ -26,7 +26,7 @@ def train_epoch(model, data, opt, ctc_loss_func, alpha, eps, device, b_update, b
     opt.zero_grad()
     for batch_i, batch in enumerate(loader):
         # prepare data
-        src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), batch)
+        src_seq, src_mask, tgt_pre, tgt_seq = map(lambda x: x.to(device), batch)
         gold = tgt_seq[:, 1:]
         tgt = tgt_seq[:, :-1]
         last = (batch_i == data_len)
@@ -51,7 +51,7 @@ def train_epoch(model, data, opt, ctc_loss_func, alpha, eps, device, b_update, b
 
                 pred, ctc_pred, src, mask = model(src_seq, src_mask, tgt, encoding=not sampling)
                 loss_s2s, s2s_data, n_correct, n_token = cal_ce_loss(pred, gold, eps)
-                tgt = tgt_seq[:, 1:-1]
+                tgt = tgt_pre[:, 1:-1]
                 loss_ctc = ctc_loss_func(ctc_pred, mask, tgt)[0]
                 ctc_data = float(loss_ctc.item())
                 loss = alpha*loss_ctc + (1-alpha)*loss_s2s
@@ -101,7 +101,7 @@ def eval_epoch(model, data, ctc_loss_func, device, fp16):
     with torch.no_grad():
         for batch_i, batch in enumerate(loader):
             # prepare data
-            src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), batch)
+            src_seq, src_mask, tgt_pre, tgt_seq = map(lambda x: x.to(device), batch)
             gold = tgt_seq[:, 1:]
             tgt = tgt_seq[:, :-1]
 
@@ -110,7 +110,7 @@ def eval_epoch(model, data, ctc_loss_func, device, fp16):
                 pred, ctc_pred, src, mask = model(src_seq, src_mask, tgt)
                 loss_s2s, s2s_data, n_correct, n_token = cal_ce_loss(pred, gold)
 
-            tgt = tgt_seq[:, 1:-1]
+            tgt = tgt_pre[:, 1:-1]
             loss_ctc = ctc_loss_func(ctc_pred, mask, tgt)[0]
             ctc_data = float(loss_ctc.item())
 
