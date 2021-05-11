@@ -163,7 +163,7 @@ def train_epoch(model, data, opt, eps, device, args, b_update, b_sync, n_print,
                 # teacher forcing or sampling
                 sampling = teacher_force < 1.
                 if sampling:
-                    pred, _, enc_out = model(src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem, gold)
+                    pred, _, enc_out, _ = model(src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem, gold)
                     pred = torch.argmax(pred, dim=-1).detach()
                     sample = pred.clone().bernoulli_(1. - teacher_force)
                     pred = pred * sample
@@ -173,7 +173,7 @@ def train_epoch(model, data, opt, eps, device, args, b_update, b_sync, n_print,
                 else:
                     enc_out = None
 
-                pred, mem_attn_outs, _ = model(src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem, gold, encoding=not sampling, enc_out=enc_out)
+                pred, mem_attn_outs, _, _ = model(src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem, gold, encoding=not sampling, enc_out=enc_out)
                 pred = pred.view(-1, pred.size(2))
                 loss, stats_, stats2_ = cal_loss_trainer(pred, mem_attn_outs, gold, label_mem, eps=eps)
                 if torch.isnan(loss.data):
@@ -247,7 +247,7 @@ def eval_epoch(model, data, device, args, fp16=False):
 
             # forward
             with autocast(enabled=fp16):
-                pred, mem_attn_outs, _ = model(src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem, gold)
+                pred, mem_attn_outs, _, _ = model(src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem, gold)
                 loss, stats_, stats2_ = cal_loss_trainer(pred, mem_attn_outs, gold, label_mem)
 
             stats += stats_

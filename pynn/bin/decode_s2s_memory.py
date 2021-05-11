@@ -56,7 +56,7 @@ def printTgt(tgt, sp):
         text = sp.decode_ids(ids)
         print(text)
 
-def printStats(tgt_seq, tgt_ids_mem, sp, stats, id, gold, forward, id2):
+def printStats(tgt_seq, tgt_ids_mem, sp, stats, id, gold, forward, id2, gates):
     stats2 = []
     for j, st in enumerate(stats):
         gate = F.softmax(st, -1)[:,:,0][id]
@@ -81,11 +81,11 @@ def printStats(tgt_seq, tgt_ids_mem, sp, stats, id, gold, forward, id2):
             print("%2d" % i + ", Tgt_st", end=": ")
             printTgt(tgt_ids_mem[i:i + 1], sp)
 
-    for i, (g, f) in enumerate(zip(gold, forward)):
+    for i, (g, f, gate) in enumerate(zip(gold, forward, gates[id])):
         print(("gold: %" + str(maxGold) + "s, forward: %" + str(maxForward) + "s,") % (g, f), end=" ")
         for j in range(len(stats2)):
             print("gate: %.2f, s_id: %3d," % (stats2[j][0][i], stats2[j][1][i]), end=" ")
-        print("")
+        print("gate_a: %.2f,"%gate)
 
 def replaceEntryInStorage(tgt_seq_st, id, label):
     if len(label) > tgt_seq_st.shape[1]:
@@ -156,7 +156,7 @@ def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
     dec_output = gates * dec_out_orig + (1 - gates) * dec_out_mem
 
     if not inference:
-        return dec_output, mem_attn_outs
+        return dec_output, mem_attn_outs, gates
     else:
         dec_output = dec_output[:, -1, :].squeeze(1)
         return torch.log(dec_output)
@@ -262,12 +262,12 @@ if __name__ == '__main__':
 
             # run the model
             with torch.no_grad():
-                pred, stats = model(src_seq, src_mask, tgt_seq, tgt_ids_mem)[:2]
+                pred, stats, _, gates = model(src_seq, src_mask, tgt_seq, tgt_ids_mem)
 
             pred = pred.argmax(-1)
 
             printStats(tgt_seq, tgt_ids_mem, sp, stats, 0, [sp.decode_ids([int(x) - 2]) for x in gold[0]],
-                       [sp.decode_ids([int(x) - 2]) for x in pred[0]], id2)
+                       [sp.decode_ids([int(x) - 2]) for x in pred[0]], id2, gates)
 
             with torch.no_grad():
                 hypos, scores = beam_search_memory(model, src_seq, src_mask, tgt_ids_mem, device, args.beam_size,

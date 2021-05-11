@@ -134,8 +134,8 @@ class TransformerMemory(nn.Module):
         if encoding:
             enc_out = self.encode(src_seq, src_mask, tgt_ids_mem)
 
-        dec_out, mem_attn_outs = self.decode(tgt_seq, enc_out, label_mem, gold, inference=False)
-        return dec_out, mem_attn_outs, enc_out
+        dec_out, mem_attn_outs, gates = self.decode(tgt_seq, enc_out, label_mem, gold, inference=False)
+        return dec_out, mem_attn_outs, enc_out, gates
 
     def encode(self, src_seq, src_mask, tgt_ids_mem):
         enc_out, enc_mask = self.encoder(src_seq, src_mask)
@@ -190,7 +190,7 @@ class TransformerMemory(nn.Module):
         dec_output = gates * dec_out_orig + (1-gates) * dec_out_mem
 
         if not inference:
-            return dec_output, mem_attn_outs
+            return dec_output, mem_attn_outs, gates
         else:
             dec_output = dec_output[:, -1, :].squeeze(1)
             return torch.log(dec_output)
