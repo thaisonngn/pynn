@@ -29,6 +29,7 @@ class SpectroDataset(Dataset):
         self.sek = sek
 
         self.mean_sub = mean_sub
+        self.var_norm = var_norm
         self.spec_drop = spec_drop
         self.spec_bar = spec_bar
         self.spec_ratio = spec_ratio
@@ -321,8 +322,8 @@ class SpectroDataset(Dataset):
         insts = []
         bar, ratio = self.spec_bar, self.spec_ratio
         for inst in src:
-            inst = self.mean_sub_inst(inst) if self.mean_sub else inst
-            #inst = self.std_norm_inst(inst) if self.mean_sub else inst
+            inst = self.mean_sub_inst(inst) if self.mean_sub and not self.var_norm else inst
+            inst = self.std_norm_inst(inst) if self.var_norm else inst
             inst = self.time_stretch_inst(inst, win=self.time_win) if self.time_stretch else inst
             inst = self.timefreq_drop_inst(inst, num=bar, time_drop=ratio) if self.spec_drop else inst            
             inst = self.down_sample_inst(inst, self.downsample) if self.downsample > 1 else inst

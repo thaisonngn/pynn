@@ -10,6 +10,35 @@ from torch.autograd import Variable
 
 from . import XavierLinear, Swish
 
+class LocationAwareAttention(nn.Module):
+    '''
+    implementation of: https://arxiv.org/pdf/1506.07503.pdf
+    '''
+    def __init__(self, d_attn, d_conv=256, d_kernel=5):
+        super().__init__()
+        self.W = XavierLinear(d_attn, d_attn)
+        self.w = XavierLinear(d_attn, 1)
+        self.activation = nn.ReLU()
+        if d_conv > 0:
+            padding = (d_kernel-1) // 2        
+            self.conv = nn.Conv1d(in_channels=1, out_channels=d_conv,
+                                  kernel_size=d_kernel, padding=padding)
+            self.U = XavierLinear(d_conv, d_attn)
+        else:
+            self.conv = None
+            self.U = None
+
+    def forward(self, dec_out, attn, enc_out, enc_mask):
+        attn_out = self.W(dec_out) + enc_out
+        if self.U is not None:
+            loc_out = torch.transpose(self.conv(attn.unsqueeze(dim=1)), 1, 2)
+            attn_out += self.U(loc_out)
+        energy = self.w(self.activation(attn_out)).squeeze(dim=-1)
+        energy = energy.masked_fill(enc_mask, -np.inf)
+        attn =  torch.softmax(energy, dim=-1)  # (batch, enc_len)
+        ctx = torch.bmm(attn.unsqueeze(dim=1), enc_out)
+        return ctx, attn
+
 class PositionalEmbedding(nn.Module):
     def __init__(self, d_model):
         super(PositionalEmbedding, self).__init__()

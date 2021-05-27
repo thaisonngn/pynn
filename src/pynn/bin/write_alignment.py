@@ -27,7 +27,7 @@ parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
 parser.add_argument('--label', help='label file', default=None)
 
 parser.add_argument('--len-norm', help='length normalization', action='store_true')
-parser.add_argument('--batch-size', help='batch size', type=int, default=32)
+parser.add_argument('--batch-size', help='batch size', type=int, default=80)
 parser.add_argument('--alg-beam', help='beam size', type=int, default=20)
 parser.add_argument('--blank', help='blank field', type=int, default=0)
 parser.add_argument('--blank-scale', help='blank scale', type=float, default=1.0)
@@ -65,13 +65,21 @@ if __name__ == '__main__':
         while True:
             src, mask, utts = reader.read_batch_utt(args.batch_size)
             if utts is None or len(utts) == 0: break
-
-            lbs = [[el+2 for el in lbl[utt]] for utt in utts]
+            src, mask = src.to(device), mask.to(device)
+            if lbl is None:
+                hypos = beam_search(s2s, src, mask, device, 8, args.max_len, len_norm=args.len_norm)[0]
+                lbs = []
+                for hypo in hypos:
+                    hp = []
+                    for token in hypo:
+                        if token == 2: break
+                        hp.append(token)
+                    lbs.append(hp)
+            else:
+                lbs = [[el+2 for el in lbl[utt]] for utt in utts]
             l = max(len(lb) for lb in lbs)
             tgt = [[1] + lb + [2] + [0]*(l-len(lb)) for lb in lbs]
-            tgt = torch.LongTensor(tgt)
-
-            src, mask, tgt = src.to(device), mask.to(device), tgt.to(device)
+            tgt = torch.LongTensor(tgt).to(device)
 
             mask, probs = model.align(s2s, src, mask, tgt)[1:3]
             probs = probs.log_softmax(dim=-1).cpu()

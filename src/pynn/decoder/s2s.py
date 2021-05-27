@@ -120,23 +120,17 @@ def partial_search(model, src, max_node=8, max_len=10, states=[1], len_norm=Fals
         seq = torch.LongTensor(seq).to(src.device)
 
         if l > 1:
-            cache = [beam.cache[k] for k in range(l)]
-            hid, cell = zip(*cache)
-            hid, cell = torch.stack(hid, dim=1), torch.stack(cell, dim=1)
-            hid_cell = (hid, cell)
-            seq = seq[:, -1].view(-1, 1)
+            seq = seq[:, -1].view(-1, 1)        
+            hide = [beam.cache[k] for k in range(l)]
         else:
-            hid_cell = None
+            dec_in, hid = seq, None
 
         enc = enc_out.expand(seq.size(0), -1, -1)
         mask = enc_mask.expand(seq.size(0), -1)
-        dec_out, attn, hid_cell = model.decode(enc, mask, seq, hid_cell)
+        dec_out, attn, hid = model.decode(enc, mask, dec_in, hid)
         
         probs, tokens = dec_out.topk(max_node, dim=1)
         probs, tokens = probs.cpu().numpy(), tokens.cpu().numpy()
-
-        hid, cell = hid_cell
-        hid = [(hid[:,k,:].clone(), cell[:,k,:].clone()) for k in range(l)]
 
         for k in range(l):
             prob, token, cache = probs[k], tokens[k], hid[k]
@@ -242,28 +236,22 @@ def beam_search_cache(model, src_seq, src_mask, device, max_node=10, max_len=200
             seq = torch.LongTensor(seq).to(device)
 
             if l > 1:
-                cache = [beam.cache[k] for beam in beams]
-                hid, cell = zip(*cache)
-                hid, cell = torch.stack(hid, dim=1), torch.stack(cell, dim=1)
-                hid_cell = (hid, cell)
-                seq = seq[:, -1].view(-1, 1)
+                dec_in = seq[:, -1].view(-1, 1)
+                hid = [beam.cache[k] for beam in beams]
             else:
-                hid_cell = None
+                dec_in, hid = seq, None
             
-            dec_out, attn, hid_cell = model.decode(enc_out, enc_mask, seq, hid_cell)
+            dec_out, attn, hid = model.decode(enc_out, enc_mask, dec_in, hid)
             if coverage > 0.:
                 scores = model.coverage(enc_out, enc_mask, seq, attn)
                 scores = scores.cpu().numpy()
-                for beam, s in zip(beams, scores): beam.update(k, coverage*s)            
+                for beam, s in zip(beams, scores): beam.update(k, coverage*s)
             if lm is not None:
                 lm_out = lm.decode(seq)
                 dec_out += lm_out * lm_scale
 
             probs, tokens = dec_out.topk(max_node, dim=1)
             probs, tokens = probs.cpu().numpy(), tokens.cpu().numpy()
-
-            hid, cell = hid_cell
-            hid = [(hid[:,j,:].clone(), cell[:,j,:].clone()) for j in range(batch_size)]
 
             for beam, prob, token, h in zip(beams, probs, tokens, hid):
                 beam.advance(k, prob, token, h)

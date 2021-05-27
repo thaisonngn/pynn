@@ -161,10 +161,15 @@ class Seq2Seq(nn.Module):
     def encode(self, src_seq, src_mask, hid=None):
         return self.encoder(src_seq, src_mask, hid)
 
-    def decode(self, enc_out, enc_mask, tgt_seq, hid=None):
-        logit, attn, hid = self.decoder(tgt_seq, enc_out, enc_mask, hid)
+    def decode(self, enc_out, enc_mask, tgt_seq, state=None):
+        if state is not None:
+            hid, cell = zip(*state)
+            state = (torch.stack(hid, dim=1), torch.stack(cell, dim=1))
+        logit, attn, state = self.decoder(tgt_seq, enc_out, enc_mask, state)
+        hid, cell = state
+        state = [(hid[:,j,:], cell[:,j,:]) for j in range(logit.size(0))]
         logit = logit[:,-1,:].squeeze(1)
-        return torch.log_softmax(logit, -1), attn, hid
+        return torch.log_softmax(logit, -1), attn, state
 
     def coverage(self, enc_out, enc_mask, tgt_seq, attn=None):
         if attn is None:

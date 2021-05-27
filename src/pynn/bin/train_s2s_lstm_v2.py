@@ -12,8 +12,8 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from pynn.util import save_object_param
-from pynn.net.s2s_lstm_da import Seq2Seq
-from pynn.bin import print_model, train_hybrid_model
+from pynn.net.s2s_lstm_step import Seq2Seq
+from pynn.bin import print_model, train_s2s_model
 
 parser = argparse.ArgumentParser(description='pynn')
 parser.add_argument('--train-scp', help='path to train scp', required=True)
@@ -30,7 +30,6 @@ parser.add_argument('--d-emb', type=int, default=0)
 parser.add_argument('--d-project', type=int, default=0)
 parser.add_argument('--d-input', type=int, default=40)
 parser.add_argument('--n-head', type=int, default=8)
-parser.add_argument('--n-aligner', type=int, default=1)
 
 parser.add_argument('--unidirect', help='uni directional encoder', action='store_true')
 parser.add_argument('--incl-win', help='incremental window size', type=int, default=0)
@@ -71,7 +70,6 @@ parser.add_argument('--b-sample', help='maximum samples per batch', type=int, de
 parser.add_argument('--b-update', help='characters per update', type=int, default=8000)
 parser.add_argument('--b-sync', help='steps per update', type=int, default=0)
 parser.add_argument('--lr', help='learning rate', type=float, default=0.002)
-parser.add_argument('--alpha', help='2nd loss loss scale', type=float, default=0.3)
 parser.add_argument('--grad-norm', help='divide gradient by updated tokens', action='store_true')
 parser.add_argument('--fp16', help='fp16 or not', action='store_true')
 
@@ -86,7 +84,6 @@ def create_model(args, device):
         'd_emb': args.d_emb,
         'd_project': args.d_project,
         'n_head': args.n_head,
-        'n_aligner': args.n_aligner,
         'unidirect': args.unidirect,
         'incl_win': args.incl_win,
         'time_ds': args.time_ds,
@@ -101,13 +98,12 @@ def create_model(args, device):
         'emb_drop': args.emb_drop}
     model = Seq2Seq(**params)
     save_object_param(model, params, args.model_path+'/model.cfg')
-    if args.alpha == 1.: model.freeze()
     return model
 
 def train(device, args):
     model = create_model(args, device)
     print_model(model)
-    train_hybrid_model(model, args, device)
+    train_s2s_model(model, args, device)
 
 def train_distributed(device, gpus, args):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -117,7 +113,7 @@ def train_distributed(device, gpus, args):
 
     model = create_model(args, device)
     if device == 0: print_model(model)
-    train_hybrid_model(model, args, device, gpus)
+    train_s2s_model(model, args, device, gpus)
 
     dist.destroy_process_group()
     

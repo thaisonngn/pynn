@@ -7,18 +7,20 @@ import numpy as np
 import torch
 
 class Beam(object):
-    def __init__(self, beam_size=10, pruning=1.5, blank=0):
+    def __init__(self, beam_size=10, pruning=1.5, blank=0, blank_scale=1.):
         self.beam_size = beam_size
         self.pruning_size = int(beam_size*pruning)
         self.blank = blank
+        self.blank_scale = blank_scale
         self.seqs = [[[], 0.]]
         self.index = {'': 0}
         self.paths = [(0, 0., 0., blank)]
         self.adv_paths = []
 
     def advance(self, probs, tokens):
-        blank, adv_paths = self.blank, []
+        blank, blank_scale, adv_paths = self.blank, self.blank_scale, []
         for prob, tk in zip(probs, tokens):
+            prob = prob if tk!=blank else prob*blank_scale
             nodes = [[sid, pscore+prob, ascore+prob, tk, pre_tk]
                      for sid, pscore, ascore, pre_tk in self.paths]
             adv_paths.extend(nodes)
@@ -64,14 +66,14 @@ class Beam(object):
     def best(self, topk=1):
         return [self.seqs[sid][0] for sid, *_ in self.paths[:topk]]
 
-def beam_search(model, src, mask, device, lm=None, lm_scale=0.,
-        beam_size=10, pruning=1.5, blank=0):
+def beam_search(model, src, mask, device, lm=None, lm_scale=0., beam_size=10,
+        pruning=1.5, blank=0, blank_scale=1.):
     logits, mask = model.decode(src, mask)
     lens = mask.sum(-1).cpu().numpy()
     b_probs, b_tokens = logits.transpose(0, 1).topk(beam_size, dim=-1)
     b_probs, b_tokens = b_probs.cpu().numpy(), b_tokens.cpu().numpy()
 
-    b_beams = [Beam(beam_size, pruning, blank) for i in range(logits.size(0))]
+    b_beams = [Beam(beam_size, pruning, blank, blank_scale) for i in range(logits.size(0))]
     for t, (probs, tokens) in enumerate(zip(b_probs, b_tokens)):
         beams = []
         for l, beam in zip(lens, b_beams):

@@ -27,6 +27,7 @@ parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
 
 parser.add_argument('--batch-size', help='batch size', type=int, default=32)
 parser.add_argument('--blank', help='blank', type=int, default=0)
+parser.add_argument('--blank-scale', help='blank scaling', type=float, default=1.0)
 parser.add_argument('--beam-size', help='beam size', type=int, default=10)
 parser.add_argument('--pruning', help='pruning size', type=float, default=1.5)
 parser.add_argument('--fp16', help='float 16 bits', action='store_true')
@@ -67,8 +68,8 @@ if __name__ == '__main__':
             seqs, masks, utts = reader.read_batch_utt(args.batch_size)
             if not utts: break
             seqs, masks = seqs.to(device), masks.to(device)
-            hypos = beam_search(model, seqs, masks, device, lm,
-                                args.lm_scale, args.beam_size, args.pruning, args.blank)
+            hypos = beam_search(model, seqs, masks, device, lm, args.lm_scale,
+                                args.beam_size, args.pruning, args.blank, args.blank_scale)
             hypos = [[el+2-args.blank for el in hypo] + [2] for hypo in hypos]
              
             write_hypo(hypos, None, fout, utts, dic, word_dic, args.space, args.format)
