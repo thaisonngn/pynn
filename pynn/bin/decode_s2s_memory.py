@@ -17,8 +17,6 @@ from pynn.decoder.s2s import beam_search_memory
 from pynn.util.text import load_dict, write_hypo
 from pynn.io.audio_seq import SpectroDataset
 
-from pynn.io.memory_dataset import MemoryDataset
-
 parser = argparse.ArgumentParser(description='pynn')
 parser.add_argument('--model-dic', help='model dictionary', required=True)
 parser.add_argument('--lm-dic', help='language model dictionary', default=None)
@@ -40,27 +38,31 @@ parser.add_argument('--output', help='output file', type=str, default='hypos/H_1
 parser.add_argument('--format', help='output format', type=str, default='ctm')
 parser.add_argument('--space', help='space token', type=str, default='▁')
 
-parser.add_argument('--valid-scp', help='path to validation scp', default="/export/data1/chuber/data/sys-All/01-Feats/data_cv.scp")
-parser.add_argument('--valid-target', help='path to validation target', default="/export/data1/chuber/data/sys-All/02-Labels/data.bpe4k")
-
 parser.add_argument('--preload', help='preloading ark matrix into memory', action='store_true')
 parser.add_argument('--bpe-model', type=str, default="/export/data1/chuber/data/bpe_model/m.model")
-parser.add_argument('--n-memory', type=int, default=200)
 parser.add_argument('--n-classes', type=int, default=4003)
 parser.add_argument('--lstm-based-baseline', default=None)
 
+parser.add_argument('--decode-ids', type=str, default="1,1,1")
+
+parser.add_argument('--data-scp-new-words', type=str, default="/export/data1/chuber/data/sys-tests/new-words-test/test.scp")
+parser.add_argument('--data-label-new-words', type=str, default="/export/data1/chuber/data/sys-tests/new-words-test/test.bpe")
+
+parser.add_argument('--data-new-words', type=str, default="/export/data1/chuber/data/sys-tests/new-words-test/data.txt")
+parser.add_argument('--new-word-begin', type=int, default=2)
+
 def printTgt(tgt, sp):
-    for i, g in enumerate(tgt[:, 1:]):
-        ids = [x.item()%4003 - 2 for x in g]
+    for i, g in enumerate(tgt[:, :]):
+        ids = [x.item()%4003 - 2 for x in g if x>2]
         ids = [i for i in ids if not i == -2]
         text = sp.decode_ids(ids)
         print(text)
 
-def printStats(tgt_seq, tgt_ids_mem, sp, stats, id, gold, forward, id2, gates):
+def printStats(tgt_seq, tgt_ids_mem, sp, stats, gold, forward, gates):
     stats2 = []
     for j, st in enumerate(stats):
-        gate = F.softmax(st, -1)[:,:,0][id]
-        samples = st.argmax(-1)[id]-1
+        gate = F.softmax(st, -1)[0,:,0]
+        samples = st[0].argmax(-1)-1
         stats2.append((gate, samples))
 
     maxGold = max([len(g) for g in gold])
@@ -70,62 +72,52 @@ def printStats(tgt_seq, tgt_ids_mem, sp, stats, id, gold, forward, id2, gates):
     printTgt(tgt_seq[0:1], sp)
 
     ids = set()
-    ids.add(id2)
     for i in range(len(gold)):
         for j in range(len(stats2)):
             if stats2[j][1][i]!=-1:
                 ids.add(int(stats2[j][1][i]))
 
-    for i in range(len(tgt_ids_mem)):
-        if i in ids:
-            print("%2d" % i + ", Tgt_st", end=": ")
-            printTgt(tgt_ids_mem[i:i + 1], sp)
+    if tgt_ids_mem is not None:
+        for i in range(len(tgt_ids_mem)):
+            if i in ids:
+                print("%2d" % i + ", Tgt_st", end=": ")
+                printTgt(tgt_ids_mem[i:i + 1], sp)
 
-    for i, (g, f, gate) in enumerate(zip(gold, forward, gates[id])):
+    for i, (g, f, gate) in enumerate(zip(gold, forward, gates[0])):
         print(("gold: %" + str(maxGold) + "s, forward: %" + str(maxForward) + "s,") % (g, f), end=" ")
         for j in range(len(stats2)):
             print("gate: %.2f, s_id: %3d," % (stats2[j][0][i], stats2[j][1][i]), end=" ")
         print("gate_a: %.2f,"%gate)
 
-def replaceEntryInStorage(tgt_seq_st, id, label):
-    if len(label) > tgt_seq_st.shape[1]:
-        z = torch.zeros(tgt_seq_st.shape[0], len(label) - tgt_seq_st.shape[1], device=tgt_seq_st.device,
-                        dtype=tgt_seq_st.dtype)
-        tgt_seq_st = torch.cat([tgt_seq_st, z], 1)
-
-    for i in range(tgt_seq_st.shape[1]):
-        if i < len(label):
-            tgt_seq_st[id, i] = label[i]
-        else:
-            tgt_seq_st[id, i] = 0
-
-    return tgt_seq_st
-
 def encode(self, src_seq, src_mask, tgt_ids_mem):
     enc_out, enc_mask = self.encoder(src_seq, src_mask)
     enc_out2, enc_mask2 = self.encoder2(src_seq, src_mask)[:2]
 
-    # generate tgt and gold sequence in the memory
-    tgt_emb_mem = self.decoder_mem.emb(tgt_ids_mem)
-    tgt_mask_mem = tgt_ids_mem.ne(0)
+    if tgt_ids_mem is not None:
+        # generate tgt and gold sequence in the memory
+        tgt_emb_mem = self.decoder_mem.emb(tgt_ids_mem)
+        tgt_mask_mem = tgt_ids_mem.ne(0)
 
-    if self.decoder_mem.rel_pos:
-        raise NotImplementedError
-        # pos_emb = self.pos.embed(tgt_emb_mem)
+        if self.decoder_mem.rel_pos:
+            raise NotImplementedError
+            # pos_emb = self.pos.embed(tgt_emb_mem)
+        else:
+            pos_seq = torch.arange(0, tgt_emb_mem.size(1), device=tgt_emb_mem.device, dtype=tgt_emb_mem.dtype)
+            pos_emb = self.decoder_mem.pos(pos_seq, tgt_emb_mem.size(0))
+            tgt_emb_mem = tgt_emb_mem * self.decoder_mem.scale + pos_emb
+        tgt_seq_mem = self.decoder_mem.emb_drop(tgt_emb_mem)
+
+        # encode tgt seq from the memory
+        enc_out_mem = self.encoder_mem(tgt_seq_mem, tgt_mask_mem)[0]
+
+        # calc mean
+        enc_out_mem[tgt_mask_mem.logical_not()] = 0
+        enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True))  # n_mem x d_model
+
+        enc_out_mem_mean = torch.cat([self.no_entry_found, enc_out_mem_mean], 0)
     else:
-        pos_seq = torch.arange(0, tgt_emb_mem.size(1), device=tgt_emb_mem.device, dtype=tgt_emb_mem.dtype)
-        pos_emb = self.decoder_mem.pos(pos_seq, tgt_emb_mem.size(0))
-        tgt_emb_mem = tgt_emb_mem * self.decoder_mem.scale + pos_emb
-    tgt_seq_mem = self.decoder_mem.emb_drop(tgt_emb_mem)
-
-    # encode tgt seq from the memory
-    enc_out_mem = self.encoder_mem(tgt_seq_mem, tgt_mask_mem)[0]
-
-    # calc mean
-    enc_out_mem[tgt_mask_mem.logical_not()] = 0
-    enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True))  # n_mem x d_model
-
-    enc_out_mem_mean = torch.cat([self.no_entry_found, enc_out_mem_mean], 0)
+        enc_out_mem_mean = self.no_entry_found
+        tgt_emb_mem = tgt_mask_mem = enc_out_mem = None
 
     if not self.encode_values:
         return enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, enc_out2, enc_mask2
@@ -171,7 +163,35 @@ if __name__ == '__main__':
     args.device = device = torch.device('cuda' if use_gpu else 'cpu')
     print('Using device: ' + str(device))
 
+    # makes segmenter instance and loads the model file (.model)
+    sp = spm.SentencePieceProcessor()
+    sp.load(args.bpe_model)
+
+    # create memory content
+    tgt_ids_mem_save = []
+
+    words = []
+    for line in open(args.data_new_words, "r"):
+        if line[0] == "-":
+            continue
+        line = line.strip().split()
+        word = " ".join(line[args.new_word_begin:])
+
+        words.append(word)
+        tgt_ids_mem_save.append([1] + [x + 2 for x in sp.encode_as_ids(word)] + [2])
+
+    tgt_ids_mem_save2 = torch.zeros(len(tgt_ids_mem_save), max([len(x) for x in tgt_ids_mem_save]), dtype=torch.int64)
+    for i, word in enumerate(tgt_ids_mem_save):
+        tgt_ids_mem_save2[i, :len(word)] = torch.as_tensor(word)
+    tgt_ids_mem_save = tgt_ids_mem_save2.to(device)
+
+    tgt_ids_mem_save_dummy = torch.ones(len(words),2,dtype=tgt_ids_mem_save.dtype,device=tgt_ids_mem_save.device)
+    tgt_ids_mem_save_dummy[:,1] = 2
+
+    # load model
+
     mdic = torch.load(args.model_dic)
+    mdic['params']['size_memory'] = len(words)
     model = load_object(mdic['class'], mdic['module'], mdic['params'])
     model = model.to(device)
     model.load_state_dict(mdic['state'])
@@ -206,92 +226,103 @@ if __name__ == '__main__':
 
     print("Initialize Datasets.....")
     print("Loading ...")
-    cv_data = SpectroDataset(args.valid_scp, args.valid_target, downsample=args.downsample,
-                             sort_src=False, mean_sub=args.mean_sub, fp16=args.fp16, preload=args.preload,
-                             threads=2, verbose=False)
     print("Loading ...")
-    cv_data.initialize(b_input=2500, b_sample=64)
     print("Loading ...")
-    cv_data = MemoryDataset(cv_data, args, validation=True, fast=True)
-
-    # get storage data
-    _, _, _, tgt_ids_mem_save, _ = cv_data[42]
-    tgt_ids_mem_save = tgt_ids_mem_save.to(device)
-
     print("Loading ...")
 
-    # ---------- DECODE NEW WORDS TESTSET --------------
+    # decode new words test set
+    if args.decode_ids.split(",")[0]=="1":
+        dataset = SpectroDataset(args.data_scp_new_words, args.data_label_new_words, downsample=args.downsample,
+                                 sort_src=False, mean_sub=args.mean_sub, fp16=args.fp16, preload=args.preload,
+                                 threads=2, verbose=False)
+        dataset.initialize(b_input=2500, b_sample=64)
 
-    # makes segmenter instance and loads the model file (.model)
-    sp = spm.SentencePieceProcessor()
-    sp.load(args.bpe_model)
+        for i in range(0,len(dataset),args.batch_size):
+            ids = [j for j in range(i,min(len(dataset),i+args.batch_size))]
+            tgt_seqTmp = []
+            goldTmp = []
+            predTmp = []
+            statsTmp = []
+            gatesTmp = []
+            hyposTmp = []
 
-    # dataset to decode
-    data_scp = "/export/data1/chuber/data/sys-tests/new-words-test/test.scp"
-    data_label = "/export/data1/chuber/data/sys-tests/new-words-test/test.bpe"
-    data_new_words = "/export/data1/chuber/data/sys-tests/new-words-test/data.txt"
+            for useMemory in [False, True]:
+                sample_batched = dataset.collate_fn([dataset[id] for id in ids])
+                src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), sample_batched)
 
-    words = []
-    for line in open(data_new_words, "r"):
-        if line[0] == "-":
-            continue
-        words.append(" ".join(line.strip().split()[2:]))
+                tgt_ids_mem = copy.deepcopy(tgt_ids_mem_save) if useMemory else copy.deepcopy(tgt_ids_mem_save_dummy)
 
-    dataset = SpectroDataset(data_scp, data_label, downsample=args.downsample,
-                             sort_src=False, mean_sub=args.mean_sub, fp16=args.fp16, preload=args.preload,
-                             threads=2, verbose=False)
-    dataset.initialize(b_input=2500, b_sample=64)
+                gold = tgt_seq[:, 1:]
+                tgt_seq = tgt_seq[:, :-1]
 
-    id2 = 0
-    for id, word in zip(range(len(dataset)), words):
-        for changeStorage in [False, True]:
-            print("Storage new words:", changeStorage)
+                goldTmp.append(gold)
+                tgt_seqTmp.append(tgt_seq)
 
-            sample_batched = dataset.collate_fn([dataset[id]])
-            src_seq, src_mask, tgt_seq = map(lambda x: x.to(device), sample_batched)
+                # run the model
+                with torch.no_grad():
+                    pred, stats, _, gates = model(src_seq, src_mask, tgt_seq, tgt_ids_mem)
 
-            tgt_ids_mem = copy.deepcopy(tgt_ids_mem_save)
+                    pred = pred.argmax(-1)
+                    predTmp.append(pred)
+                    statsTmp.append(stats)
+                    gatesTmp.append(gates)
 
-            # add part of data to decode to storage
-            if changeStorage:
-                word2 = cv_data.encode_as_ids(word)
-                tgt_ids_mem = replaceEntryInStorage(tgt_ids_mem, id2, word2)
+                with torch.no_grad():
+                    hypos, scores = beam_search_memory(model, src_seq, src_mask, tgt_ids_mem, device, args.beam_size,
+                                                       args.max_len, len_norm=args.len_norm, lm=lm,
+                                                       lm_scale=args.lm_scale)
+                    hyposTmp.append(hypos)
 
-            gold = tgt_seq[:, 1:]
-            tgt_seq = tgt_seq[:, :-1]
+            for l,j in enumerate(ids):
+                for k,useMemory in enumerate([False, True]):
+                    print("Storage new words:", useMemory)
+                    print("New word:", words[j])
 
-            # run the model
-            with torch.no_grad():
-                pred, stats, _, gates = model(src_seq, src_mask, tgt_seq, tgt_ids_mem)
+                    printStats(tgt_seqTmp[k][l:l+1], tgt_ids_mem, sp, [x[l:l+1] for x in statsTmp[k]], [sp.decode_ids([int(x) - 2]) for x in goldTmp[k][l] if x!=0],
+                               [sp.decode_ids([int(x) - 2]) for x in predTmp[k][l] if x!=0], gatesTmp[k][l:l+1])
 
-            pred = pred.argmax(-1)
+                    print("Output decode:", " ".join(
+                        [x for x in sp.decode_ids([int(x) - 2 for x in hyposTmp[k][l] if x!=0]).split() if not x == "<unk>"]))
 
-            printStats(tgt_seq, tgt_ids_mem, sp, stats, 0, [sp.decode_ids([int(x) - 2]) for x in gold[0]],
-                       [sp.decode_ids([int(x) - 2]) for x in pred[0]], id2, gates)
+    # decode test set with full memory
+    if args.decode_ids.split(",")[1]=="1":
+        print("Decoding test set with full memory")
 
-            with torch.no_grad():
-                hypos, scores = beam_search_memory(model, src_seq, src_mask, tgt_ids_mem, device, args.beam_size,
+        reader = SpectroDataset(args.data_scp, mean_sub=args.mean_sub, fp16=args.fp16,
+                                downsample=args.downsample)
+        since = time.time()
+        fout = open(args.output+"_mem", 'w')
+        with torch.no_grad():
+            while True:
+                seq, mask, utts = reader.read_batch_utt(args.batch_size)
+                if not utts: break
+                #print("Decoding shape " + str(seq.shape))
+                seq, mask = seq.to(device), mask.to(device)
+                hypos, scores = beam_search_memory(model, seq, mask, copy.deepcopy(tgt_ids_mem_save), device, args.beam_size,
                                                    args.max_len, len_norm=args.len_norm, lm=lm, lm_scale=args.lm_scale)
+                hypos, scores = hypos.tolist(), scores.tolist()
+                write_hypo(hypos, scores, fout, utts, dic, word_dic, args.space, args.format)
+        fout.close()
+        time_elapsed = time.time() - since
+        print("  Elapsed Time: %.0fm %.0fs" % (time_elapsed // 60, time_elapsed % 60))
 
-            # print(pred[0])
-            print("Output decode:", " ".join([x for x in sp.decode_ids([int(x) - 2 for x in hypos[0] if not x == 2]).split() if not x=="<unk>"]))
+    # decode test set with empty memory
+    if args.decode_ids.split(",")[2]=="1":
+        print("Decoding test set with empty memory")
 
-    # ------- DECODE TED TEST SET ----------------
-
-    reader = SpectroDataset(args.data_scp, mean_sub=args.mean_sub, fp16=args.fp16,
-                            downsample=args.downsample)
-    since = time.time()
-    fout = open(args.output, 'w')
-    with torch.no_grad():
-        while True:
-            seq, mask, utts = reader.read_batch_utt(args.batch_size)
-            if not utts: break
-            #print("Decoding shape "+str(seq.shape))
-            seq, mask = seq.to(device), mask.to(device)
-            hypos, scores = beam_search_memory(model, seq, mask, copy.deepcopy(tgt_ids_mem_save), device, args.beam_size,
-                                               args.max_len, len_norm=args.len_norm, lm=lm, lm_scale=args.lm_scale)
-            hypos, scores = hypos.tolist(), scores.tolist()
-            write_hypo(hypos, scores, fout, utts, dic, word_dic, args.space, args.format)
-    fout.close()
-    time_elapsed = time.time() - since
-    print("  Elapsed Time: %.0fm %.0fs" % (time_elapsed // 60, time_elapsed % 60))
+        reader = SpectroDataset(args.data_scp, mean_sub=args.mean_sub, fp16=args.fp16, downsample=args.downsample)
+        since = time.time()
+        fout = open(args.output, 'w')
+        with torch.no_grad():
+            while True:
+                seq, mask, utts = reader.read_batch_utt(args.batch_size)
+                if not utts: break
+                #print("Decoding shape "+str(seq.shape))
+                seq, mask = seq.to(device), mask.to(device)
+                hypos, scores = beam_search_memory(model, seq, mask, copy.deepcopy(tgt_ids_mem_save_dummy), device, args.beam_size,
+                                                   args.max_len, len_norm=args.len_norm, lm=lm, lm_scale=args.lm_scale)
+                hypos, scores = hypos.tolist(), scores.tolist()
+                write_hypo(hypos, scores, fout, utts, dic, word_dic, args.space, args.format)
+        fout.close()
+        time_elapsed = time.time() - since
+        print("  Elapsed Time: %.0fm %.0fs" % (time_elapsed // 60, time_elapsed % 60))

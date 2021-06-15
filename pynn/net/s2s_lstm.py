@@ -36,7 +36,7 @@ class Encoder(nn.Module):
     def rnn_fwd(self, seq, mask, hid):
         if self.pack and mask is not None:
             lengths = mask.sum(-1); #lengths[0] = mask.size(1)
-            seq = pack_padded_sequence(seq, lengths.cpu(), batch_first=True)    
+            seq = pack_padded_sequence(seq, lengths.cpu(), batch_first=True, enforce_sorted=False)
             seq, hid = self.rnn(seq, hid)
             seq = pad_packed_sequence(seq, batch_first=True)[0]
         else:
