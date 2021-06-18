@@ -97,7 +97,8 @@ class TransformerMemory(nn.Module):
             time_ds=1, use_cnn=False, freq_kn=3, freq_std=2,
             dropout=0.1, emb_drop=0., enc_drop=0.0, dec_drop=0.0,
             shared_emb=False, rel_pos=False,
-            size_memory=200, n_enc_mem=8, n_dec_mem=4, encode_values=False, no_skip_conn_mem=False, version_gate=0):
+            size_memory=200, n_enc_mem=8, n_dec_mem=4, encode_values=False,
+            no_skip_conn_mem=False, version_gate=0, prob_perm=0.5):
 
         super().__init__()
 
@@ -129,6 +130,8 @@ class TransformerMemory(nn.Module):
 
         self.project = nn.Linear(n_dec_mem,1)
         self.n_vocab = n_vocab
+
+        self.prob_perm = prob_perm
 
     def forward(self, src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem=None, gold=None, encoding=True, enc_out=None):
         if encoding:
@@ -181,8 +184,8 @@ class TransformerMemory(nn.Module):
 
             mask = gold.gt(2)
 
-            dec_out_orig = self.noise_permute(dec_out_orig, gold, label_gate.eq(1) & mask)
-            dec_out_mem = self.noise_permute(dec_out_mem, gold, label_gate.eq(0) & mask)
+            dec_out_orig = self.noise_permute(dec_out_orig, gold, label_gate.eq(1) & mask, noise_prob=self.prob_perm)
+            dec_out_mem = self.noise_permute(dec_out_mem, gold, label_gate.eq(0) & mask, noise_prob=self.prob_perm)
 
         gates = torch.cat([F.softmax(a.to(torch.float32),-1)[:,:,0:1].to(a.dtype).detach() for a in mem_attn_outs], -1)
         gates = F.sigmoid(self.project(gates).to(torch.float32))
