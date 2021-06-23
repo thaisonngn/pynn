@@ -14,7 +14,7 @@ from .memory_layer import DecoderLayerMemory
 class DecoderMemory(nn.Module):
     def __init__(self, n_vocab, d_model, n_layer, n_head, d_inner,
                  rel_pos=False, dropout=0.1, emb_drop=0., layer_drop=0., shared_emb=True,
-                 size_memory=200, no_skip_conn_mem=False, version_gate=0):
+                 size_memory=200, no_skip_conn_mem=False, version_gate=0, clas_model=False):
 
         super().__init__()
 
@@ -28,7 +28,7 @@ class DecoderMemory(nn.Module):
 
         self.layer_stack = nn.ModuleList([
             DecoderLayerMemory(d_model, d_inner, n_head, dropout, rel_pos=rel_pos,
-                               size_memory=size_memory, version_gate=version_gate)
+                               size_memory=size_memory, version_gate=version_gate, clas_model=clas_model)
             for _ in range(n_layer)])
 
         self.output = nn.Linear(d_model, n_vocab, bias=True)
@@ -98,7 +98,7 @@ class TransformerMemory(nn.Module):
             dropout=0.1, emb_drop=0., enc_drop=0.0, dec_drop=0.0,
             shared_emb=False, rel_pos=False,
             size_memory=200, n_enc_mem=8, n_dec_mem=4, encode_values=False,
-            no_skip_conn_mem=False, version_gate=0, prob_perm=0.5):
+            no_skip_conn_mem=False, version_gate=0, prob_perm=0.5, clas_model=False):
 
         super().__init__()
 
@@ -126,7 +126,8 @@ class TransformerMemory(nn.Module):
             n_vocab, d_model=d_model, d_inner=d_inner, n_layer=n_dec_mem,
             n_head=n_dec_head, shared_emb=shared_emb, rel_pos=False,
             dropout=dropout, emb_drop=emb_drop, layer_drop=0,
-            size_memory=size_memory, no_skip_conn_mem=no_skip_conn_mem, version_gate=version_gate)
+            size_memory=size_memory, no_skip_conn_mem=no_skip_conn_mem,
+            version_gate=version_gate, clas_model=clas_model)
 
         self.project = nn.Linear(n_dec_mem,1)
         self.n_vocab = n_vocab

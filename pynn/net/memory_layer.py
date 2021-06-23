@@ -23,10 +23,10 @@ class AttentionMemory(nn.Module):
         dec_output = self.layer_norm(dec_output)
 
         # attention over dictionary entries
-        q = self.linear(dec_output).unsqueeze(2)  # b x l_tar x 1 x d_model
+        q = self.linear(dec_output)  # b x l_tar x d_model
         k = self.linear2(enc_out_mem_mean)  # n_st x d_model
 
-        attn = torch.matmul(q, k.transpose(1, 0))[:, :, 0]  # b x l_tar x n_st
+        attn = torch.einsum("b l d, n d -> b l n",q,k)  # b x l_tar x n_st
         attn = attn / self.temperature
         attn = self.norm(attn.view(-1,attn.shape[-1])).view(*attn.shape)
         if not mem_attn_out is None:  # skip connection
@@ -98,20 +98,31 @@ class AttentionMemoryEntry(nn.Module):
 
 class DecoderLayerMemory(DecoderLayer):
     def __init__(self, d_model, d_inner, n_head, dropout=0.1, n_enc_head=0, rel_pos=False,
-                 size_memory=200, version_gate=0):
+                 size_memory=200, version_gate=0, clas_model=False):
         super().__init__(d_model, d_inner, n_head, dropout=dropout, n_enc_head=n_enc_head, rel_pos=rel_pos)
 
+        self.clas_model = clas_model
+
         self.attentionMemory = AttentionMemory(d_model, size_memory)
-        self.attentionMemoryEntry = AttentionMemoryEntry(n_head, d_model, d_inner, dropout, version_gate=version_gate)
+
+        if not self.clas_model:
+            self.attentionMemoryEntry = AttentionMemoryEntry(n_head, d_model, d_inner, dropout, version_gate=version_gate)
+        else:
+            self.linear = nn.Linear(d_model, d_model)
 
     def forward(self, dec_inp, enc_out, slf_mask=None, dec_enc_mask=None, scale=1.,
                 enc_out_mem_mean=None, tgt_mask=None, mem_attn_out=None, enc_out_mem=None, tgt_emb_mem=None, tgt_mask_mem=None):
         dec_output = self.slf_attn(dec_inp, mask=slf_mask, scale=scale)[0]
         dec_output, attn = self.enc_attn(dec_output, enc_out, mask=dec_enc_mask, scale=scale)
-        dec_output = self.pos_ffn(dec_output, scale=scale)
+        dec_output = self.pos_ffn(dec_output, scale=scale) # b x l_tar x d_model
 
-        mem_attn_out = self.attentionMemory(dec_output, enc_out_mem_mean, mem_attn_out)
-        dec_output = self.attentionMemoryEntry(dec_output, tgt_mask, mem_attn_out, enc_out_mem, tgt_emb_mem, tgt_mask_mem)
+        mem_attn_out = self.attentionMemory(dec_output, enc_out_mem_mean, mem_attn_out) # b x l_tar x n_st
+        if not self.clas_model:
+            dec_output = self.attentionMemoryEntry(dec_output, tgt_mask, mem_attn_out, enc_out_mem, tgt_emb_mem, tgt_mask_mem)
+        else:
+            v = self.linear(enc_out_mem_mean) # n_mem x d_model
+            mem_attn = torch.einsum("b l n, n d -> b l d",mem_attn_out,v)
+            dec_output = dec_output + mem_attn
 
         return dec_output, mem_attn_out
 
