@@ -24,6 +24,7 @@ parser.add_argument('--word-dict', help='word dictionary file', default=None)
 parser.add_argument('--data-scp', help='path to data scp', required=True)
 parser.add_argument('--downsample', help='concated frames', type=int, default=1)
 parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
+parser.add_argument('--var-norm', help='mean and variance normalization', action='store_true')
 
 parser.add_argument('--fp16', help='float 16 bits', action='store_true')
 parser.add_argument('--state-cache', help='caching encoder states', action='store_true')
@@ -60,8 +61,8 @@ if __name__ == '__main__':
         lm.eval()
         if args.fp16: lm.half()
         
-    reader = SpectroDataset(args.data_scp, mean_sub=args.mean_sub, fp16=args.fp16,
-                            downsample=args.downsample)
+    reader = SpectroDataset(args.data_scp, mean_sub=args.mean_sub, var_norm=args.var_norm,
+                            fp16=args.fp16, downsample=args.downsample)
     since = time.time()
     fout = open(args.output, 'w')
     decode_func = beam_search_cache if args.state_cache else beam_search

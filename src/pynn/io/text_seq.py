@@ -42,8 +42,9 @@ class TextSeqDataset(Dataset):
         seqs = []
         for line in smart_open(self.path, 'rt'):
             tokens = line.split()
-            seq_id = tokens[0]
-            seq = [int(token) for token in tokens[1:]]
+            if len(tokens) < 2: continue
+            #seq_id = tokens[0]
+            seq = [int(token) for token in tokens]
             seq = [1] + [el+2 for el in seq] + [2] if self.sek else seq
             seqs.append(seq)
 

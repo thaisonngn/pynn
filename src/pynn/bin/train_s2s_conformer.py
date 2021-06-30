@@ -30,6 +30,7 @@ parser.add_argument('--n-enc', type=int, default=4)
 parser.add_argument('--n-dec', type=int, default=2)
 parser.add_argument('--d-input', type=int, default=40)
 parser.add_argument('--n-kernel', type=int, default=25)
+parser.add_argument('--rel-pos', help='relative positional', action='store_true')
 
 parser.add_argument('--time-ds', help='downsample in time axis', type=int, default=1)
 parser.add_argument('--use-cnn', help='use CNN filters', action='store_true')
@@ -47,6 +48,7 @@ parser.add_argument('--teacher-force', type=float, default=1.0)
 
 parser.add_argument('--downsample', help='concated frames', type=int, default=1)
 parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
+parser.add_argument('--var-norm', help='mean and variance normalization', action='store_true')
 parser.add_argument('--spec-drop', help='argument inputs', action='store_true')
 parser.add_argument('--spec-bar', help='number of bars of spec-drop', type=int, default=2)
 parser.add_argument('--spec-ratio', help='spec-drop ratio', type=float, default=0.4)
@@ -80,6 +82,7 @@ def create_model(args, device):
         'n_dec': args.n_dec,
         'n_head': args.n_head,
         'n_kernel': args.n_kernel,
+        'rel_pos': args.rel_pos,
         'time_ds': args.time_ds,
         'use_cnn': args.use_cnn,
         'freq_kn': args.freq_kn,

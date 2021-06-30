@@ -25,13 +25,9 @@ parser.add_argument('--downsample', help='concated frames', type=int, default=1)
 parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
 parser.add_argument('--label', help='label file', default=None)
 
-parser.add_argument('--len-norm', help='length normalization', action='store_true')
-parser.add_argument('--batch-size', help='batch size', type=int, default=32)
-parser.add_argument('--dec-beam', help='beam size', type=int, default=8)
-parser.add_argument('--alg-beam', help='beam size', type=int, default=20)
-parser.add_argument('--blank', help='blank field', type=int, default=0)
+parser.add_argument('--alg-beam', help='beam size', type=int, default=60)
+parser.add_argument('--blank', help='blank field', type=int, default=2)
 parser.add_argument('--blank-scale', help='blank scale', type=float, default=1.0)
-parser.add_argument('--max-len', help='max len', type=int, default=200)
 parser.add_argument('--space', help='space token', type=str, default='▁')
 
 def hide_axis(ax, label=None):
@@ -54,15 +50,6 @@ if __name__ == '__main__':
     model.load_state_dict(mdic['state'])
     model.eval()
 
-    if args.s2s_model is not None:
-        mdic = torch.load(args.s2s_model)
-        s2s = load_object(mdic['class'], mdic['module'], mdic['params'])
-        s2s.load_state_dict(mdic['state'])
-        s2s = s2s.to(device)
-        s2s.eval()
-    else:
-        s2s = model
-
     reader = SpectroDataset(args.data_scp, mean_sub=args.mean_sub, downsample=args.downsample)
     bs, blank, scale = args.alg_beam, args.blank, args.blank_scale
     with torch.no_grad():
@@ -71,46 +58,28 @@ if __name__ == '__main__':
             if not utts: break
             seq, mask = seq.to(device), mask.to(device)
             utt = utts[0]
-            if lbl is None:
-                hypos, scores = beam_search(s2s, seq, mask, device, args.dec_beam,
-                                            args.max_len, len_norm=args.len_norm)
-                hypo = []
-                for token in hypos[0]:
-                    if token == 2: break
-                    hypo.append(token)
-            else:
-                hypo = [el+2 for el in lbl[utt]]
+            hypo = [el+2 for el in lbl[utt]]
 
-            #print(hypo) 
-            tgt = torch.LongTensor([1]+hypo+[2]).to(device).view(1, -1)
-
-            attn, mask, logit, tgt = model.align(s2s, seq, mask, tgt)
-            logit = logit.softmax(dim=-1)
+            probs, mask = model(seq, mask)
+            probs = probs.softmax(dim=-1).squeeze(0).cpu()
+            tgt = torch.LongTensor(hypo)
                         
-            attn, logit = attn.cpu(), logit.cpu()
-            #print(greedy_search(logit)[0])
-                     
             img = seq[0].cpu().numpy()
-            hide_axis(plt.subplot(411))
-            ax = plt.subplot(411)
+            hide_axis(plt.subplot(311))
+            ax = plt.subplot(311)
             ax.get_yaxis().set_visible(False)
             ax.xaxis.tick_top()
             plt.imshow(img.T, aspect="auto")
         
-            hide_axis(plt.subplot(412))
-            plt.imshow(attn.squeeze(0), aspect="auto")
-
-            probs, tgt = logit.squeeze(0), tgt.squeeze(0).cpu()
             #alg = greedy_align(probs.log(), tgt)
             alg = viterbi_align(torch.log(probs), tgt, bs, blank, scale)
             if len(alg) != len(tgt):
                 print(utt)
-                #print(tgt.tolist())
-                #print([a[0] for a in alg])
+                print(tgt.tolist())
+                print([a[0] for a in alg])
             probs = probs.transpose(1, 0)
-            #img = probs[[0] + tgt.tolist()]
             img = probs[tgt]
-            hide_axis(plt.subplot(413))
+            hide_axis(plt.subplot(312))
             plt.imshow(img, aspect="auto")
 
             #print([a[0] for a in alg])
@@ -120,14 +89,12 @@ if __name__ == '__main__':
                 #print('%s %d %d' % (tk, st*4, et*4))
                 img[j][0:st] = 0.
                 img[j][et:-1] = 0.
-            hide_axis(plt.subplot(414))
+            hide_axis(plt.subplot(313))
             plt.imshow(img, aspect="auto")
 
             if dic is not None:
                 hypo = [dic[token-2].replace(args.space, '') for token in hypo]
-            if len(hypo) > 20:
-                hypo = hypo[0:20] + ['..']
-            plt.title(' '.join(map(str, hypo)), fontsize=8, y=-.4)
+            plt.title(' '.join(map(str, hypo)), fontsize=10, y=-.4)
             #plt.imshow(img)
 
             plt.subplots_adjust(left=0.125, bottom=0.1, right=0.9, top=0.9, wspace=0.2, hspace=0.35)

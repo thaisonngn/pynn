@@ -14,7 +14,7 @@ from .conformer_layer import EncoderLayer
 from .transformer_layer import DecoderLayer
 
 class Encoder(nn.Module):
-    def __init__(self, d_input, d_model, d_inner, n_layer, n_head, n_kernel=25, rel_pos=True,
+    def __init__(self, d_input, d_model, d_inner, n_layer, n_head, n_kernel=25, rel_pos=False,
             dropout=0.1, layer_drop=0., time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super().__init__()
 
@@ -28,9 +28,9 @@ class Encoder(nn.Module):
             self.cnn = None
 
         self.emb = XavierLinear(d_input, d_model)
+        self.drop = nn.Dropout(dropout)
         self.pos = PositionalEmbedding(d_model)
         self.rel_pos = rel_pos
-        self.drop = nn.Dropout(dropout)
 
         self.layer_stack = nn.ModuleList([
             EncoderLayer(d_model, d_inner, n_head, n_kernel, dropout, rel_pos)
@@ -47,14 +47,8 @@ class Encoder(nn.Module):
             src_seq = src_seq.permute(0, 2, 1, 3).contiguous()
             src_seq = src_seq.view(src_seq.size(0), src_seq.size(1), -1)
             if src_mask is not None: src_mask = src_mask[:, 0:src_seq.size(1)*4:4]
-        enc_out = src_seq if self.emb is None else self.emb(src_seq)
-        if self.rel_pos:
-            pos_emb = self.pos.embed(src_mask)
-        else:
-            pos_seq = torch.arange(0, enc_out.size(1), device=enc_out.device, dtype=enc_out.dtype)
-            pos_emb = self.pos(pos_seq, enc_out.size(0))
-            enc_out = self.drop(enc_out + pos_emb)
-            pos_emb = None
+        enc_out = src_seq if self.emb is None else self.drop(self.emb(src_seq))
+        pos_emb = self.pos.embed(src_mask) if self.rel_pos else None
  
         # -- Prepare masks
         slf_mask = src_mask.eq(0)
@@ -124,14 +118,14 @@ class Decoder(nn.Module):
 
 class Conformer(nn.Module):
     def __init__(self, d_input, n_classes, d_enc=256, d_inner=0, n_enc=4, n_kernel=25,
-                 d_dec=320, n_dec=2, n_head=8, shared_emb=True,
+                 d_dec=320, n_dec=2, n_head=8, shared_emb=True, rel_pos=False,
                  dropout=0.1, emb_drop=0.1, enc_drop=0., dec_drop=0.,
                  time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super().__init__()
 
         d_inner = d_enc*4 if d_inner == 0 else d_inner
         self.encoder = Encoder(d_input, d_enc, d_inner, n_enc, n_head, n_kernel=n_kernel,
-                            dropout=dropout, layer_drop=enc_drop,
+                            rel_pos=rel_pos, dropout=dropout, layer_drop=enc_drop,
                             time_ds=time_ds, use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std)
         self.decoder = Decoder(n_classes, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
                             dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop)

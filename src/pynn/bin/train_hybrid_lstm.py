@@ -12,7 +12,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from pynn.util import save_object_param
-from pynn.net.hybrid import Hybrid
+from pynn.net.hybrid_lstm import Hybrid
 from pynn.bin import print_model, train_hybrid_model
 
 parser = argparse.ArgumentParser(description='pynn')
@@ -30,8 +30,9 @@ parser.add_argument('--n-head', type=int, default=8)
 parser.add_argument('--n-enc', type=int, default=4)
 parser.add_argument('--n-dec', type=int, default=2)
 parser.add_argument('--d-input', type=int, default=40)
-parser.add_argument('--n-kernel', type=int, default=25)
+parser.add_argument('--d-emb', type=int, default=0)
 parser.add_argument('--d-project', type=int, default=0)
+parser.add_argument('--unidirect', help='uni directional encoder', action='store_true')
 
 parser.add_argument('--time-ds', help='downsample in time axis', type=int, default=1)
 parser.add_argument('--use-cnn', help='use CNN filters', action='store_true')
@@ -80,10 +81,11 @@ def create_model(args, device):
         'd_enc': args.d_enc,
         'd_dec': args.d_dec,
         'd_inner': args.d_inner,
+        'unidirect': args.unidirect,
         'n_enc': args.n_enc,
         'n_dec': args.n_dec,
         'n_head': args.n_head,
-        'n_kernel': args.n_kernel,
+        'd_emb': args.d_emb,
         'd_project': args.d_project,
         'time_ds': args.time_ds,
         'use_cnn': args.use_cnn,

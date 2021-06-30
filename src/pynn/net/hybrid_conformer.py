@@ -7,19 +7,23 @@ import torch.nn.functional as F
 
 from . import XavierLinear
 from .s2s_conformer import Encoder, Decoder
+#from .s2s_lstm import Decoder
 
 class Hybrid(nn.Module):
     def __init__(self, d_input, n_classes, n_target=0, d_enc=256, d_inner=0, n_enc=4,
-                 n_kernel=31, d_dec=320, n_dec=2, n_head=8, d_project=0, shared_emb=True,
-                 dropout=0.1, emb_drop=0.1, enc_drop=0., dec_drop=0.,
+                 n_kernel=31, d_dec=320, n_dec=2, n_head=8, d_project=0, d_emb=0, shared_emb=True,
+                 rel_pos=False, dropout=0.1, emb_drop=0.1, enc_drop=0., dec_drop=0.,
                  time_ds=1, use_cnn=False, freq_kn=3, freq_std=2):
         super().__init__()
 
         d_inner = d_enc*4 if d_inner == 0 else d_inner
         self.encoder = Encoder(d_input, d_enc, d_inner, n_enc, n_head, n_kernel=n_kernel,
-                            dropout=dropout, layer_drop=enc_drop,
+                            rel_pos=rel_pos, dropout=dropout, layer_drop=enc_drop,
                             time_ds=time_ds, use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std)
         n_target = n_classes if n_target==0 else n_target
+        #self.decoder = Decoder(n_target, d_dec, n_dec, d_enc,
+        #                    n_head=1, d_emb=d_emb, d_project=d_project, shared_emb=shared_emb,
+        #                    dropout=dropout, emb_drop=emb_drop)
         self.decoder = Decoder(n_target, d_dec, d_inner, n_dec, d_enc, n_head, shared_emb=shared_emb,
                             dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop)
         d_project = d_enc if d_project==0 else d_project
@@ -65,7 +69,7 @@ class Hybrid(nn.Module):
         return self.encoder(src_seq, src_mask, hid)
 
     def decode(self, enc_out, enc_mask, tgt_seq):
-        logit, attn = self.decoder(tgt_seq, enc_out, enc_mask)
+        logit, attn = self.decoder(tgt_seq, enc_out, enc_mask)[0:2]
         logit = logit[:,-1,:].squeeze(1)
         return torch.log_softmax(logit, -1), attn
 

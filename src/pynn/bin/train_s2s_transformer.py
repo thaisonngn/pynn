@@ -47,6 +47,7 @@ parser.add_argument('--teacher-force', type=float, default=1.0)
 
 parser.add_argument('--downsample', help='concated frames', type=int, default=4)
 parser.add_argument('--mean-sub', help='mean subtraction', action='store_true')
+parser.add_argument('--var-norm', help='mean and variance normalization', action='store_true')
 parser.add_argument('--spec-drop', help='argument inputs', action='store_true')
 parser.add_argument('--spec-bar', help='number of bars', type=int, default=2)
 parser.add_argument('--spec-ratio', help='spec-drop ratio', type=float, default=0.4)
