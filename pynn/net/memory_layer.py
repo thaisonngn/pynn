@@ -121,7 +121,7 @@ class DecoderLayerMemory(DecoderLayer):
             dec_output = self.attentionMemoryEntry(dec_output, tgt_mask, mem_attn_out, enc_out_mem, tgt_emb_mem, tgt_mask_mem)
         else:
             v = self.linear(enc_out_mem_mean) # n_mem x d_model
-            mem_attn = torch.einsum("b l n, n d -> b l d",mem_attn_out,v)
+            mem_attn = torch.einsum("b l n, n d -> b l d",F.softmax(mem_attn_out,-1),v)
             dec_output = dec_output + mem_attn
 
         return dec_output, mem_attn_out

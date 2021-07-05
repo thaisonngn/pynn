@@ -281,6 +281,11 @@ def train_model(model, datasets, epochs, device, args, fp16=False, dist=False):
             print("Pretrained memory decoder used")
         print("Pretrained model loaded")
 
+    #for dlm in model.decoder_mem.layer_stack:
+    #    dlm.linear.reset_parameters()
+    #model.project.reset_parameters()
+    #print("Reseting learned gate parameters")
+
     tr_data.initialize(args.b_input, args.b_sample)
     tr_data = MemoryDataset(tr_data, args)
     tr_data.shuffle()
