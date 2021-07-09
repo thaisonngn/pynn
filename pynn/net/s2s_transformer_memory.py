@@ -115,6 +115,7 @@ class TransformerMemory(nn.Module):
             embedding=False, emb_vocab=n_vocab, emb_drop=emb_drop,
             time_ds=1, use_cnn=False, dropout=dropout, layer_drop=enc_drop)
         self.no_entry_found = nn.Parameter(torch.randn(d_model).unsqueeze(0))
+        self.layer_norm = nn.LayerNorm(d_model)
         self.encode_values = encode_values
 
         self.decoder = Decoder(
@@ -164,7 +165,8 @@ class TransformerMemory(nn.Module):
         enc_out_mem[tgt_mask_mem.logical_not()] = 0
         enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True)) # n_mem x d_model
 
-        enc_out_mem_mean = torch.cat([self.no_entry_found, enc_out_mem_mean], 0)
+        no_entry_found = self.layer_norm(self.no_entry_found)
+        enc_out_mem_mean = torch.cat([no_entry_found, enc_out_mem_mean], 0)
 
         if not self.encode_values:
             return enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean

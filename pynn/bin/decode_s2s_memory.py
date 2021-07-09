@@ -114,9 +114,11 @@ def encode(self, src_seq, src_mask, tgt_ids_mem):
         enc_out_mem[tgt_mask_mem.logical_not()] = 0
         enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True))  # n_mem x d_model
 
-        enc_out_mem_mean = torch.cat([self.no_entry_found, enc_out_mem_mean], 0)
+        no_entry_found = self.layer_norm(self.no_entry_found)
+        enc_out_mem_mean = torch.cat([no_entry_found, enc_out_mem_mean], 0)
     else:
-        enc_out_mem_mean = self.no_entry_found
+        no_entry_found = self.layer_norm(self.no_entry_found)
+        enc_out_mem_mean = no_entry_found
         tgt_emb_mem = tgt_mask_mem = enc_out_mem = None
 
     if not self.encode_values:
