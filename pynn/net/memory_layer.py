@@ -14,21 +14,24 @@ class AttentionMemory(nn.Module):
 
         self.linear = nn.Linear(d_model, d_model)
         self.linear2 = nn.Linear(d_model, d_model)
-        self.temperature = np.power(d_model, 0.5)
+        self.temperature = np.power(d_model, -0.25)
 
         self.layer_norm = nn.LayerNorm(d_model)
-        self.norm = nn.LayerNorm(size_memory+1,elementwise_affine=False)
+        self.norms = nn.ModuleList([nn.LayerNorm(d_model, elementwise_affine=False) for _ in range(2)])
 
     def forward(self, dec_output, enc_out_mem_mean, mem_attn_out=None):
-        dec_output = self.layer_norm(dec_output)
+        # printms(0, dec_output)
+        # printms(1, enc_out_mem)
 
         # attention over dictionary entries
-        q = self.linear(dec_output)  # b x l_tar x d_model
-        k = self.linear2(enc_out_mem_mean)  # n_st x d_model
+        q = self.temperature * self.norms[0](self.linear(dec_output))  # b x l_tar x d_model
+        k = self.temperature * self.norms[1](self.linear2(enc_out_mem_mean))  # n_mem x d_model
+        # printms(2, q)
+        # printms(3, k)
 
-        attn = torch.einsum("b l d, n d -> b l n",q,k)  # b x l_tar x n_st
-        attn = attn / self.temperature
-        attn = self.norm(attn.view(-1,attn.shape[-1])).view(*attn.shape)
+        attn = torch.einsum("b t d, n d -> b t n",q,k)  # b x l_tar x n_st
+        # printms(4, attn)
+
         if not mem_attn_out is None:  # skip connection
             attn = (attn + mem_attn_out) / 2
 
