@@ -184,7 +184,6 @@ class TransformerMemory(nn.Module):
 
         if not label_mem is None:
             label_gate = label_mem.clamp(max=1)
-            label_gate[:,1:][gold[:,1:].eq(2) & (label_gate[:,:-1].eq(1))] = 1
 
             mask = gold.gt(0)
 

@@ -145,6 +145,9 @@ class MemoryDataset(Dataset):
                 print(self.decode_ids([int(x) for x in tgt_ids_mem[i-1]]))
         sys.exit()"""
 
+        mask = tgt_seq[:, 2:].eq(2) & (label_mem[:, :-1].gt(0))
+        label_mem[:, 1:][mask] = label_mem[:, :-1][mask]
+
         return src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem
 
     def __len__(self):
