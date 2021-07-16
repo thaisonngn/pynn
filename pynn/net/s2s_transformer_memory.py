@@ -184,8 +184,9 @@ class TransformerMemory(nn.Module):
 
         if not label_mem is None:
             label_gate = label_mem.clamp(max=1)
+            label_gate[:,1:][gold[:,1:].eq(2) & (label_gate[:,:-1].eq(1))] = 1
 
-            mask = gold.gt(2)
+            mask = gold.gt(0)
 
             dec_out_orig = self.noise_permute(dec_out_orig, gold, label_gate.eq(1) & mask, noise_prob=self.prob_perm)
             dec_out_mem = self.noise_permute(dec_out_mem, gold, label_gate.eq(0) & mask, noise_prob=self.prob_perm)
