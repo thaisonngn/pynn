@@ -102,6 +102,18 @@ def data_callback(i,sampleA):
     segmenter.append_signal(sample.tobytes())
     return 0
 
+def insert_new_words(model, args):
+    while True:
+        words = []
+        with open(args.new_words,"r") as f:
+            for line in f:
+                line = line.strip().lower()
+                words.append(line)
+
+        model.new_words(words)
+
+        time.sleep(1)
+
 def send_hypo(start, end, hypo, output):
     lh = 0 if output=='text' else len(hypo)
     mcloud_w.send_packet_result_async(start, end, hypo, lh)
@@ -236,6 +248,7 @@ parser.add_argument('--incl-block', help='incremental block size', type=int, def
 parser.add_argument('--max-len', help='max length', type=int, default=100)
 parser.add_argument('--space', help='space token', type=str, default='▁')
 parser.add_argument('--seg-based', help='output when audio segment is complete', action='store_true')
+parser.add_argument('--new-words', help='path to text file with new words', default="words.txt")
 
 #worker argument
 parser.add_argument('-s','--server', type=str, default="i13srv53.ira.uka.de")
@@ -246,6 +259,7 @@ parser.add_argument('-fo','--outfingerprint',type=str, default="en-EU")
 parser.add_argument('-i','--inputType' ,type=str, default="audio")
 parser.add_argument('-o','--outputType', type=str, default="unseg-text")
 args = parser.parse_args()
+print(args)
 
 serverHost = args.server
 serverPort = args.port
@@ -286,6 +300,9 @@ print("Done.")
 #segmentor thread
 record = threading.Thread(target=segmenter_thread, args=(mcloud_w,))
 record.start()
+
+new_words = threading.Thread(target=insert_new_words, args=(model,args))
+new_words.start()
 
 try:
     cur_segs, wc = [], 0
@@ -373,4 +390,4 @@ except KeyboardInterrupt:
     print("Terminating running threads..")
 
 record.join()
-
+new_words.join()

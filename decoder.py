@@ -13,6 +13,9 @@ from pynn.util import audio
 from pynn.decoder.s2s import Beam
 from pynn.util import load_object
 
+import threading
+import sentencepiece as spm
+
 def token2word(tokens, dic, space='', cleaning=True):
     tokens.append(2)
     hypo, pw = [], ''
@@ -42,13 +45,13 @@ def token2word(tokens, dic, space='', cleaning=True):
     return hypo
 
 def incl_search(model, src, max_node=8, max_len=10, states=[1], len_norm=False, prune=1.0):
-    enc_out = model.encode(src.unsqueeze(0), None)[0]
-    enc_mask = torch.ones((1, enc_out.size(1)), dtype=torch.uint8).to(src.device)
+    src_mask = torch.ones((1, src.size(0)), dtype=torch.uint8, device=src.device)
+    enc_out = model.encode(src.unsqueeze(0), src_mask)
 
     beam = Beam(max_node, [1], len_norm)
     if len(states) > 1:
         seq = torch.LongTensor(states).to(src.device).view(1, -1)
-        logits = model.get_logit(enc_out, enc_mask, seq)
+        logits = model.get_logit(enc_out, seq)
         logits = logits.squeeze(0)
         for i in range(len(states)-1):
             token = states[i+1]
@@ -61,35 +64,21 @@ def incl_search(model, src, max_node=8, max_len=10, states=[1], len_norm=False, 
         seq = [beam.seq(k) for k in range(l)]
         seq = torch.LongTensor(seq).to(src.device)
 
-        if l > 1:
-            cache = [beam.cache[k] for k in range(l)]
-            hid, cell = zip(*cache)
-            hid, cell = torch.stack(hid, dim=1), torch.stack(cell, dim=1)
-            hid_cell = (hid, cell)
-            seq = seq[:, -1].view(-1, 1)
-        else:
-            hid_cell = None
-
-        enc = enc_out.expand(seq.size(0), -1, -1)
-        mask = enc_mask.expand(seq.size(0), -1)
-        dec_out, hid_cell = model.decode(enc, mask, seq, hid_cell)
+        dec_out = model.decode(enc_out, seq)
         
         probs, tokens = dec_out.topk(max_node, dim=1)
         probs, tokens = probs.cpu().numpy(), tokens.cpu().numpy()
 
-        hid, cell = hid_cell
-        hid = [(hid[:,k,:].clone(), cell[:,k,:].clone()) for k in range(l)]
-
         for k in range(l):
-            prob, token, cache = probs[k], tokens[k], hid[k]
-            beam.advance(k, prob, token, cache)
+            prob, token = probs[k], tokens[k]
+            beam.advance(k, prob, token)
 
         beam.prune()
         if beam.done: break
     hypo, prob = beam.best_hypo()
     sth = beam.stable_hypo(prune)
 
-    return enc_out, enc_mask, hypo, prob, sth
+    return enc_out, hypo, prob, sth
 
 def init_asr_model(args):
     dic = None
@@ -107,6 +96,8 @@ def init_asr_model(args):
     model = model.to(device)
     model.load_state_dict(mdic['state'])
     model.eval()
+
+    model = ModelWrapper(model,args)
 
     return model, device, dic
 
@@ -126,10 +117,10 @@ def decode(model, device, args, adc, fbank_mat, start=0, prefix=[1]):
     with torch.no_grad():
         src = torch.HalfTensor(feats) if args.fp16 else torch.FloatTensor(feats)
         src = src.to(device)
-        enc_out, mask, hypo, score, sth = incl_search(model, src, beam_size, max_len, prefix)
+        enc_out, hypo, score, sth = incl_search(model, src, beam_size, max_len, prefix)
 
         tgt = torch.LongTensor(hypo).to(device).view(1, -1)
-        attn = model.get_attn(enc_out, mask, tgt)
+        attn = model.get_attn(enc_out, tgt)
         attn = attn[0]
         cs = torch.cumsum(attn[head], dim=1)
         ep = cs.le(1.-padding).sum(dim=1)
@@ -139,6 +130,62 @@ def decode(model, device, args, adc, fbank_mat, start=0, prefix=[1]):
 
     return hypo, sp, ep, frames
 
+class ModelWrapper():
+    def __init__(self, model, args):
+        self.model = model
+
+        self.tgt_ids_mem = torch.ones(1,2,dtype=torch.int64,device=args.device)
+        self.tgt_ids_mem[:,1] = 2
+
+        self.lock = threading.Lock()
+
+        self.sp = spm.SentencePieceProcessor()
+        self.sp.load("/".join(args.dict.split("/")[:-1])+"/m.model")
+
+        self.words = []
+        self.device = args.device
+
+    def encode(self, src_seq, src_mask):
+        with self.lock:
+            enc_out = self.model.encode(src_seq, src_mask, self.tgt_ids_mem)
+
+        return enc_out
+
+    def decode(self, enc, seq):
+        enc = list(enc)
+        enc[0] = enc[0].expand(seq.size(0), -1, -1)
+        if len(enc)==7:
+            enc[1] = enc[1].expand(seq.size(0), -1, -1)
+        enc[-5] = enc[-5].expand(seq.size(0), -1)
+
+        return self.model.decode(seq, enc)
+
+    def get_attn(self, enc, tgt_seq):
+        return self.model.decoder(tgt_seq, enc[0], enc[-5])[1]
+
+    def get_logit(self, enc, tgt_seq):
+        logit = self.model.decoder(tgt_seq, enc[0], enc[-5])[0]
+        return torch.log_softmax(logit, -1)
+
+    def new_words(self, words):
+        if words != self.words:
+            self.words = words
+            if len(self.words)>0:
+                tmp = self.words_to_tensor()
+            else:
+                tmp = torch.ones(1,2,dtype=torch.int64,device=self.tgt_ids_mem.device)
+                tmp[:,1] = 2
+            with self.lock:
+                self.tgt_ids_mem = tmp
+
+    def words_to_tensor(self):
+        bpes = [[1] + [x + 2 for x in self.sp.encode_as_ids(w)] + [2] for w in self.words]
+
+        tmp = torch.zeros(len(bpes), max([len(x) for x in bpes]), dtype=torch.int64)
+        for i, word in enumerate(bpes):
+            tmp[i, :len(word)] = torch.as_tensor(word)
+        return tmp.to(self.device)
+
 def init_punct_model(args):
     device = torch.device(args.device)
 
@@ -147,6 +194,7 @@ def init_punct_model(args):
     model = model.to(device)
     model.load_state_dict(mdic['state'])
     model.eval()
+    if args.fp16: model.half()
 
     return model
 
@@ -200,6 +248,5 @@ def token2punct(model, device, seq, lctx, rctx, dic, space):
             word += puncts[norm]
         hypo.append(word)
 
-
-    print("MYPRINT",hypo)
+    #print("MYPRINT",hypo)
     return hypo

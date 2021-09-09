@@ -3,13 +3,14 @@
 SYSTEM_PATH=`dirname "$0"`
 
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib
-export PYTHONPATH=$SYSTEM_PATH/pylib
+export PYTHONPATH=$SYSTEM_PATH/pylib:/home/chuber/repos/asr/ENG/pynnNewWordLT
 
 SERVER="${1:-i13srv53.ira.uka.de}"
 PORT="${2:-60019}"
 
 #pythonCMD="python -u -W ignore"
-pythonCMD="/home/mtasr/anaconda3/envs/lt2021/bin/python -u -W ignore"
+#pythonCMD="/home/mtasr/anaconda3/envs/lt2021/bin/python -u -W ignore"
+pythonCMD="/home/tnguyen/asr/anaconda3/envs/pytorch1.7/bin/python -u -W ignore"
 
 OMP_NUM_THREADS=8 $pythonCMD worker.py \
         --server ${SERVER} \
@@ -22,5 +23,5 @@ OMP_NUM_THREADS=8 $pythonCMD worker.py \
         --dict "model/bpe4k.dic" \
         --model "model/s2s-lstm.dic" \
         --punct "model/punct.dic" \
-        --device 'cpu' --beam-size 6
+        --device 'cpu' --beam-size 6 --new-words words.txt
 
