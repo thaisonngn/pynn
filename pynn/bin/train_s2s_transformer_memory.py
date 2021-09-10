@@ -11,7 +11,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from pynn.util import save_object_param
+from pynn.util import save_object_param, load_object
 from pynn.net.s2s_transformer_memory import TransformerMemory
 from pynn.bin import print_model, train_s2s_model_memory
 
@@ -70,7 +70,7 @@ parser.add_argument('--grad-norm', help='divide gradient by updated tokens', act
 parser.add_argument('--fp16', help='fp16 or not', action='store_true')
 
 parser.add_argument('--pretrained-model', type=str, default="/export/data1/chuber/memory/tf-24x8-bpe4k/epoch-avg.dic")
-parser.add_argument('--bpe-model', type=str, default="/export/data1/chuber/data/bpe_model/m.model")
+parser.add_argument('--bpe-model', type=str, default="/project/asr_systems/LT2021/EN/bpe/m.model")
 parser.add_argument('--n-memory', type=int, default=200)
 parser.add_argument('--n-enc-mem', type=int, default=8)
 parser.add_argument('--n-dec-mem', type=int, default=4)
@@ -80,6 +80,7 @@ parser.add_argument('--no-skip-conn', action='store_true')
 parser.add_argument('--version-gate', type=int, default=0)
 parser.add_argument('--prob-perm', type=float, default=0.5)
 parser.add_argument('--clas-model', action='store_true')
+parser.add_argument('--freeze-baseline', action='store_true')
 
 def create_model(args, device):
     n_enc_head = args.n_head if args.n_enc_head==0 else args.n_enc_head

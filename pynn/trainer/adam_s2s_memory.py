@@ -264,10 +264,10 @@ def train_model(model, datasets, epochs, device, args, fp16=False, dist=False):
     model_path = args.model_path
     n_print = 0 if dist and device > 0 else args.n_print
 
-    """if args.pretrained_model!="None":
+    if args.freeze_baseline and args.pretrained_model!="None":
         freeze(model.encoder)
         freeze(model.decoder)
-        print("Baseline frozen")"""
+        print("Baseline frozen")
 
     opt = ScheduledOptim(args.n_warmup, args.n_const, args.lr)
     model_opt = opt.initialize(model, device, weight_decay=args.weight_decay, dist=dist)
@@ -277,15 +277,7 @@ def train_model(model, datasets, epochs, device, args, fp16=False, dist=False):
     epoch_i, _ = load_last_chkpt(model_path, model, opt)
     if epoch_i == 0 and args.pretrained_model!="None":
         model.load_state_dict(torch.load(args.pretrained_model)['state'],strict=False)
-        if args.n_dec_mem==args.n_dec:
-            model.decoder_mem.load_state_dict(model.decoder.state_dict(), strict=False)
-            print("Pretrained memory decoder used")
         print("Pretrained model loaded")
-
-    #for dlm in model.decoder_mem.layer_stack:
-    #    dlm.linear.reset_parameters()
-    #model.project.reset_parameters()
-    #print("Reseting learned gate parameters")
 
     tr_data.initialize(args.b_input, args.b_sample)
     tr_data = MemoryDataset(tr_data, args)

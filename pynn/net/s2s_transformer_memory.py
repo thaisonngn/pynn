@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from . import XavierLinear, Swish
 from .attn import PositionalEmbedding
 from .s2s_transformer import Encoder, Decoder
+from .s2s_lstm import Encoder as EncoderLSTM, Decoder as DecoderLSTM
 from .memory_layer import DecoderLayerMemory
 
 class DecoderMemory(nn.Module):
@@ -102,12 +103,11 @@ class TransformerMemory(nn.Module):
 
         super().__init__()
 
-        self.encoder = Encoder(
-            d_input=d_input, d_model=d_model, d_inner=d_inner,
-            n_layer=n_enc, n_head=n_enc_head, rel_pos=rel_pos,
-            embedding=(n_emb > 0), emb_vocab=n_emb, emb_drop=emb_drop,
-            time_ds=time_ds, use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std,
-            dropout=dropout, layer_drop=enc_drop)
+        self.encoder = EncoderLSTM(d_input, 1024, 6,
+                            unidirect=False, incl_win=0, time_ds=time_ds,
+                            use_cnn=use_cnn, freq_kn=freq_kn, freq_std=freq_std,
+                            dropout=0.3, dropconnect=0.3)
+        self.project2 = nn.Linear(1024,d_model)
 
         self.encoder_mem = Encoder(
             d_input=d_model, d_model=d_model, d_inner=d_inner,
@@ -118,10 +118,9 @@ class TransformerMemory(nn.Module):
         self.layer_norm = nn.LayerNorm(d_model)
         self.encode_values = encode_values
 
-        self.decoder = Decoder(
-            n_vocab, d_model=d_model, d_inner=d_inner, n_layer=n_dec,
-            n_head=n_dec_head, shared_emb=shared_emb, rel_pos=False,
-            dropout=dropout, emb_drop=emb_drop, layer_drop=dec_drop)
+        self.decoder = DecoderLSTM(n_vocab, 1024, 2, 1024,
+                            n_head=1, d_emb=512, d_project=300, shared_emb=False,
+                            dropout=0.2, dropconnect=0.2, emb_drop=0.15)
 
         self.decoder_mem = DecoderMemory(
             n_vocab, d_model=d_model, d_inner=d_inner, n_layer=n_dec_mem,
@@ -143,7 +142,8 @@ class TransformerMemory(nn.Module):
         return dec_out, mem_attn_outs, enc_out, gates
 
     def encode(self, src_seq, src_mask, tgt_ids_mem):
-        enc_out, enc_mask = self.encoder(src_seq, src_mask)
+        enc_out, enc_mask, _ = self.encoder(src_seq, src_mask)
+        enc_out2 = self.project2(enc_out)
 
         # generate tgt and gold sequence in the memory
         tgt_emb_mem = self.decoder_mem.emb(tgt_ids_mem)
@@ -169,15 +169,15 @@ class TransformerMemory(nn.Module):
         enc_out_mem_mean = torch.cat([no_entry_found, enc_out_mem_mean], 0)
 
         if not self.encode_values:
-            return enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+            return enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
         else:
-            return enc_out, enc_mask, enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+            return enc_out, enc_out2, enc_mask, enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
 
     def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
-        enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = enc_out
+        enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = enc_out
 
         dec_out_orig = self.decoder(tgt_seq, enc_out, enc_mask)[0]
-        dec_out_mem, mem_attn_outs = self.decoder_mem(tgt_seq, enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean)
+        dec_out_mem, mem_attn_outs = self.decoder_mem(tgt_seq, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean)
 
         dec_out_orig = F.softmax(dec_out_orig.to(torch.float32),-1)
         dec_out_mem = F.softmax(dec_out_mem.to(torch.float32), -1)
