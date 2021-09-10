@@ -53,7 +53,7 @@ class MemoryDataset(Dataset):
                 anz = 0
                 b = False
                 for x2 in range(x+1,len(label)):
-                    if label[x2] in self.allowed_start_ids:
+                    if label[x2] in self.allowed_start_ids or label[x2]==2:
                         anz += 1
                         if anz == n_sim:
                             if not y in ind_to_stats:
@@ -93,7 +93,7 @@ class MemoryDataset(Dataset):
                     anz = 0
                     b = False
                     for x2 in range(x+1, len(label)):
-                        if label[x2] in self.allowed_start_ids:
+                        if label[x2] in self.allowed_start_ids or label[x2]==2:
                             anz += 1
                             if anz == n_sim:
                                 indices2.append(i)
@@ -144,9 +144,6 @@ class MemoryDataset(Dataset):
                 print(tgt_ids_mem[i-1])
                 print(self.decode_ids([int(x) for x in tgt_ids_mem[i-1]]))
         sys.exit()"""
-
-        mask = tgt_seq[:, 2:].eq(2) & (label_mem[:, :-1].gt(0))
-        label_mem[:, 1:][mask] = label_mem[:, :-1][mask]
 
         return src_seq, src_mask, tgt_seq, tgt_ids_mem, label_mem
 

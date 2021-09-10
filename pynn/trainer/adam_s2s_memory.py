@@ -256,17 +256,18 @@ def eval_epoch(model, data, device, args, fp16=False):
         return stats, stats2
 
 def freeze(model, unfreeze=False):
-    model.requires_grad = unfreeze
+    for p in model.parameters():
+        p.requires_grad = unfreeze
 
 def train_model(model, datasets, epochs, device, args, fp16=False, dist=False):
     ''' Start training '''
     model_path = args.model_path
     n_print = 0 if dist and device > 0 else args.n_print
 
-    if args.pretrained_model!="None":
+    """if args.pretrained_model!="None":
         freeze(model.encoder)
         freeze(model.decoder)
-        print("Baseline frozen")
+        print("Baseline frozen")"""
 
     opt = ScheduledOptim(args.n_warmup, args.n_const, args.lr)
     model_opt = opt.initialize(model, device, weight_decay=args.weight_decay, dist=dist)
