@@ -16,7 +16,6 @@ class AttentionMemory(nn.Module):
         self.linear2 = nn.Linear(d_model, d_model)
         self.temperature = np.power(d_model, -0.25)
 
-        self.layer_norm = nn.LayerNorm(d_model)
         self.norms = nn.ModuleList([nn.LayerNorm(d_model, elementwise_affine=False) for _ in range(2)])
 
     def forward(self, dec_output, enc_out_mem_mean, mem_attn_out=None):
