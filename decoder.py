@@ -146,37 +146,39 @@ class ModelWrapper():
         self.device = args.device
 
     def encode(self, src_seq, src_mask):
+        enc_out, enc_mask, _ = self.model.encoder(src_seq, src_mask)
+        enc_out2 = self.model.project2(enc_out)
         with self.lock:
-            enc_out = self.model.encode(src_seq, src_mask, self.tgt_ids_mem)
+            enc_mem = self.enc_mem
 
-        return enc_out
+        return enc_out, enc_out2, enc_mask, *enc_mem 
 
     def decode(self, enc, seq):
         enc = list(enc)
         enc[0] = enc[0].expand(seq.size(0), -1, -1)
         if len(enc)==7:
             enc[1] = enc[1].expand(seq.size(0), -1, -1)
-        enc[-5] = enc[-5].expand(seq.size(0), -1)
+        enc[2] = enc[2].expand(seq.size(0), -1)
 
         return self.model.decode(seq, enc)
 
     def get_attn(self, enc, tgt_seq):
-        return self.model.decoder(tgt_seq, enc[0], enc[-5])[1]
+        return self.model.decoder(tgt_seq, enc[0], enc[2])[1]
 
     def get_logit(self, enc, tgt_seq):
-        logit = self.model.decoder(tgt_seq, enc[0], enc[-5])[0]
+        logit = self.model.decoder(tgt_seq, enc[0], enc[2])[0]
         return torch.log_softmax(logit, -1)
 
     def new_words(self, words):
         if words != self.words:
             self.words = words
             if len(self.words)>0:
-                tmp = self.words_to_tensor()
+                tgt_ids_mem = self.words_to_tensor()
             else:
-                tmp = torch.ones(1,2,dtype=torch.int64,device=self.tgt_ids_mem.device)
-                tmp[:,1] = 2
+                tgt_ids_mem = torch.ones(1,2,dtype=torch.int64,device=self.tgt_ids_mem.device)
+                tgt_ids_mem[:,1] = 2
             with self.lock:
-                self.tgt_ids_mem = tmp
+                self.enc_mem = self.model.encode_memory(tgt_ids_mem)
 
     def words_to_tensor(self):
         bpes = [[1] + [x + 2 for x in self.sp.encode_as_ids(w)] + [2] for w in self.words]
