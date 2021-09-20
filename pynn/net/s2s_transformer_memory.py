@@ -145,7 +145,7 @@ class TransformerMemory(nn.Module):
         enc_out, enc_mask, _ = self.encoder(src_seq, src_mask)
         enc_out2 = self.project2(enc_out)
 
-        enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = self.encode_memory(tgt_ids_mem)
+        tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = self.encode_memory(tgt_ids_mem)
 
         return enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
 
@@ -174,9 +174,9 @@ class TransformerMemory(nn.Module):
         enc_out_mem_mean = torch.cat([no_entry_found, enc_out_mem_mean], 0)
 
         if not self.encode_values:
-            return enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+            return tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
         else:
-            return enc_mask, enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+            return enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
 
     def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
         enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = enc_out
