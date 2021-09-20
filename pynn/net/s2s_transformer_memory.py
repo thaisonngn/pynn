@@ -145,13 +145,18 @@ class TransformerMemory(nn.Module):
         enc_out, enc_mask, _ = self.encoder(src_seq, src_mask)
         enc_out2 = self.project2(enc_out)
 
+        enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = self.encode_memory(tgt_ids_mem)
+
+        return enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+
+    def encode_memory(self, tgt_ids_mem):
         # generate tgt and gold sequence in the memory
         tgt_emb_mem = self.decoder_mem.emb(tgt_ids_mem)
         tgt_mask_mem = tgt_ids_mem.ne(0)
 
         if self.decoder_mem.rel_pos:
             raise NotImplementedError
-            #pos_emb = self.pos.embed(tgt_emb_mem)
+            # pos_emb = self.pos.embed(tgt_emb_mem)
         else:
             pos_seq = torch.arange(0, tgt_emb_mem.size(1), device=tgt_emb_mem.device, dtype=tgt_emb_mem.dtype)
             pos_emb = self.decoder_mem.pos(pos_seq, tgt_emb_mem.size(0))
@@ -163,15 +168,15 @@ class TransformerMemory(nn.Module):
 
         # calc mean
         enc_out_mem[tgt_mask_mem.logical_not()] = 0
-        enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True)) # n_mem x d_model
+        enc_out_mem_mean = enc_out_mem.sum(1) / (tgt_mask_mem.sum(1, keepdims=True))  # n_mem x d_model
 
         no_entry_found = self.layer_norm(self.no_entry_found)
         enc_out_mem_mean = torch.cat([no_entry_found, enc_out_mem_mean], 0)
 
         if not self.encode_values:
-            return enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+            return enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
         else:
-            return enc_out, enc_out2, enc_mask, enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
+            return enc_mask, enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
 
     def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
         enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = enc_out
