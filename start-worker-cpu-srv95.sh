@@ -3,7 +3,7 @@
 SYSTEM_PATH=`dirname "$0"`
 
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib
-export PYTHONPATH=$SYSTEM_PATH/pylib:/home/chuber/repos/asr/ENG/pynnNewWordLT
+export PYTHONPATH=$SYSTEM_PATH/pylib
 
 #pythonCMD="/home/mtasr/anaconda3/envs/lt2021/bin/python -u -W ignore"
 #pythonCMD="python -u -W ignore"

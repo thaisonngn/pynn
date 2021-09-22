@@ -3,7 +3,7 @@
 SYSTEM_PATH=`dirname "$0"`
 
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib
-export PYTHONPATH=$SYSTEM_PATH/pylib:/home/chuber/repos/asr/ENG/pynnNewWordLT
+export PYTHONPATH=$SYSTEM_PATH/pylib
 
 SERVER="${1:-i13srv53.ira.uka.de}"
 PORT="${2:-60019}"

@@ -142,7 +142,7 @@ class ModelWrapper():
         self.sp = spm.SentencePieceProcessor()
         self.sp.load("/".join(args.dict.split("/")[:-1])+"/m.model")
 
-        self.words = []
+        self.words = None
         self.device = args.device
 
     def encode(self, src_seq, src_mask):
@@ -179,6 +179,7 @@ class ModelWrapper():
                 tgt_ids_mem[:,1] = 2
             with self.lock:
                 self.enc_mem = self.model.encode_memory(tgt_ids_mem)
+                print("!!!!! Updated memory encoding !!!!!")
 
     def words_to_tensor(self):
         bpes = [[1] + [x + 2 for x in self.sp.encode_as_ids(w)] + [2] for w in self.words]
