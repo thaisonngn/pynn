@@ -128,7 +128,9 @@ def decode(model, device, args, adc, fbank_mat, start=0, prefix=[1]):
         sp = sp = cs.le(padding).sum(dim=1)
         sp = sp.cpu().numpy() * 4
 
-    return hypo, sp, ep, frames
+        best_memory_entry = model.get_best_memory_entry(enc_out, tgt)[0].tolist()
+
+    return hypo, sp, ep, frames, best_memory_entry
 
 class ModelWrapper():
     def __init__(self, model, args):
@@ -148,8 +150,8 @@ class ModelWrapper():
     def encode(self, src_seq, src_mask):
         enc_out, enc_mask, _ = self.model.encoder(src_seq, src_mask)
         enc_out2 = self.model.project2(enc_out)
-        with self.lock:
-            enc_mem = self.enc_mem
+        self.lock.acquire()
+        enc_mem = self.enc_mem
 
         return enc_out, enc_out2, enc_mask, *enc_mem 
 
@@ -169,20 +171,27 @@ class ModelWrapper():
         logit = self.model.decoder(tgt_seq, enc[0], enc[2])[0]
         return torch.log_softmax(logit, -1)
 
+    def get_best_memory_entry(self, enc, tgt_seq):
+        enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = enc
+        _, mem_attn_outs = self.model.decoder_mem(tgt_seq, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean)
+        return mem_attn_outs[-1].argmax(-1)
+
     def new_words(self, words):
         if words != self.words:
-            self.words = words
-            if len(self.words)>0:
-                tgt_ids_mem = self.words_to_tensor()
-            else:
-                tgt_ids_mem = torch.ones(1,2,dtype=torch.int64,device=self.tgt_ids_mem.device)
-                tgt_ids_mem[:,1] = 2
             with self.lock:
+                self.words = words
+
+                if len(self.words)>0:
+                    tgt_ids_mem = self.words_to_tensor()
+                else:
+                    tgt_ids_mem = torch.ones(1,2,dtype=torch.int64,device=self.tgt_ids_mem.device)
+                    tgt_ids_mem[:,1] = 2
+            
                 self.enc_mem = self.model.encode_memory(tgt_ids_mem)
                 print("!!!!! Updated memory encoding !!!!!")
 
     def words_to_tensor(self):
-        bpes = [[1] + [x + 2 for x in self.sp.encode_as_ids(w)] + [2] for w in self.words]
+        bpes = [[1] + [x + 2 for x in self.sp.encode_as_ids(w.lower())] + [2] for w in self.words]
 
         tmp = torch.zeros(len(bpes), max([len(x) for x in bpes]), dtype=torch.int64)
         for i, word in enumerate(bpes):
@@ -201,22 +210,32 @@ def init_punct_model(args):
 
     return model
 
-def clean_noise(seq, dic, space):
+def clean_noise(seq, best_memory_entry, dic, space):
     clean_seq = []
-    word, has_noise = [], False
-    for el in seq:
+    clean_bme = []
+    word, has_noise, bmes = [], False, []
+    for el,bme in zip(seq,best_memory_entry):
         token = dic[el-2]
         if token.startswith(space):
-            if not has_noise: clean_seq.extend(word)
+            if not has_noise:
+                clean_seq.extend(word)
+                clean_bme.extend(bmes)
             word = [el]
+            bmes = [bme]
             has_noise = (el == 3 or el == 4) # noise or unknown
         else:
             word.append(el)
+            bmes.append(bme)
             if el == 3 or el == 4: has_noise = True
-    if not has_noise: clean_seq.extend(word)
-    return clean_seq
+    if not has_noise:
+        clean_seq.extend(word)
+        clean_bme.extend(bmes)
+    return clean_seq, clean_bme
 
-def token2punct(model, device, seq, lctx, rctx, dic, space):
+def token2punct(model, device, seg, lctx, rctx, dic, space):
+    seq = seg.hypo
+    bmes = seg.bmes
+
     if len(seq) == 0: return []
 
     puncts = {1:'', 2:'.', 3:',', 4:'?', 5:'!', 6:':', 7:';'}
@@ -228,24 +247,38 @@ def token2punct(model, device, seq, lctx, rctx, dic, space):
     pred = pred[len(lctx):]
     if len(rctx) > 0: pred = pred[:-(len(rctx))]
 
-    hypo, tokens = [], []
-    for j, el in enumerate(seq):
+    hypo, tokens, bmes2 = [], [], []
+    for j, (el,bme) in enumerate(zip(seq,bmes)):
         token = dic[el-2]
         if token.startswith(space) and len(tokens) > 0:
             word, norm = ''.join(tokens), pred[j-1]
-            if norm > 7:
+            if len(set(bmes2))==1 and bmes2[0]>0:
+                word2 = model.model.words[bmes2[0]-1]
+                if word[:len(word2)]==word2.lower():
+                    word = word2 + word[len(word2):]
+            elif norm > 7:
                 word = word.capitalize()
+                norm -= 7
+            if norm > 7:
                 norm -= 7
             if norm > 1:
                 word += puncts[norm]
             hypo.append(word)
             tokens = []
+            bmes2 = []
         tokens.append(token[1:] if token.startswith(space) else token)
+        bmes2.append(bme)
 
     if len(tokens) > 0:
         word, norm = ''.join(tokens), pred[j]
-        if norm > 7:
+        if len(set(bmes2))==1 and bmes2[0]>0:
+            word2 = model.model.words[bmes2[0]-1]
+            if word[:len(word2)]==word2.lower():
+                word = word2 + word[len(word2):]
+        elif norm > 7:
             word = word.capitalize()
+            norm -= 7
+        if norm > 7:
             norm -= 7
         if norm > 1:
             word += puncts[norm]

@@ -107,7 +107,7 @@ def insert_new_words(model, args):
         words = []
         with open(args.new_words,"r") as f:
             for line in f:
-                line = line.strip().lower()
+                line = line.strip()
                 words.append(line)
 
         model.new_words(words)
@@ -121,7 +121,8 @@ def send_hypo(start, end, hypo, output):
 class Segment(object):
     """Represents a hypothesis segment """
     def __init__(self, hypo, start, end, text=[], fixed=False, final=False):
-        self.hypo = hypo
+        self.hypo = hypo[0]
+        self.bmes = hypo[1]
         self.start = start
         self.end = end
         self.text = text
@@ -160,7 +161,7 @@ def punct_segs(punct, device, dic, space, segs):
         while k < len(segs) and len(rctx) < 6:
             rctx = rctx + segs[k].hypo
             k += 1
-        text = token2punct(punct, device, seg.hypo, lctx, rctx, dic, space)
+        text = token2punct(punct, device, seg, lctx, rctx, dic, space)
         seg.text = text
         if len(seg.text) > 0:
             if seg.uppercase: seg.text[0] = seg.text[0].capitalize()
@@ -172,7 +173,7 @@ def punct_segs(punct, device, dic, space, segs):
     pre_w = ''
     for seg in segs:
         for j, word in enumerate(seg.text):
-            if pre_w.endswith('.') or pre_w.endswith('!') or pre_w.endswith('?'):
+            if pre_w.endswith('.') or pre_w.endswith('!') or pre_w.endswith('?'): # or pre_w.endswith(':'):
                 seg.text[j] = word.capitalize()
             pre_w = word
 
@@ -229,6 +230,8 @@ def update_and_send(punct, device, dic, space, segs, new_seg, wc):
     segs = punct_segs(punct, device, dic, space, new_segs)
     print('Sending partial: ' + seg2text(segs))
     send_segs(segs, args.outputType)
+
+    punct.model.lock.release()
 
     return segs, wc
 
@@ -294,6 +297,7 @@ fbank_mat = audio.filter_bank(sample_rate, 256, 40)
 print("Initialize the model...")
 model, device, dic = init_asr_model(args)
 punct = init_punct_model(args)
+punct.model = model
 torch.set_grad_enabled(False)
 print("Done.")
 
@@ -329,7 +333,7 @@ try:
             if sec > ntime:
                 ntime += 600
                 adc = segment.get_all()
-                hypo, sp, ep, frames = decode(model, device, args, adc, fbank_mat, h_start, shypo)
+                hypo, sp, ep, frames, best_memory_entry = decode(model, device, args, adc, fbank_mat, h_start, shypo)
                 if len(hypo) == 0: continue
 
                 for j in range(len(shypo), min(len(phypo), len(hypo))):
@@ -352,15 +356,17 @@ try:
                         if j > 5:
                             h_end = h_start + sp[j-1] - 1
                             hypo = shypo[:j] + [2]
+                            best_memory_entry = best_memory_entry[:j]
                             h_start, shypo, phypo = h_end+1, [1]+shypo[j:], [1]+phypo[j:]
                     end = ss + h_end*10
                 else:
                     end = start + frames*10
 
                 hypo = hypo[1:-1]
+                best_memory_entry = best_memory_entry[:-1]
                 if punct is not None:
                     #end = start + frames*10
-                    new_seg = Segment(clean_noise(hypo, dic, args.space), start, end)
+                    new_seg = Segment(clean_noise(hypo, best_memory_entry, dic, args.space), start, end)
                     cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc)
                 else:
                     hypo = token2word(hypo, dic, args.space)
@@ -369,13 +375,14 @@ try:
 
         if segment.completed:
             adc = segment.get_all()
-            hypo, sp, ep, frames = decode(model, device, args, adc, fbank_mat, h_start, shypo)
+            hypo, sp, ep, frames, best_memory_entry = decode(model, device, args, adc, fbank_mat, h_start, shypo)
             if len(hypo) == 0: continue
             start, end = ss + h_start*10, ss + (h_start+frames)*10
 
             hypo = hypo[1:-1]
+            best_memory_entry = best_memory_entry[:-1]
             if punct is not None:
-                new_seg = Segment(clean_noise(hypo, dic, args.space), start, end)
+                new_seg = Segment(clean_noise(hypo, best_memory_entry, dic, args.space), start, end)
                 cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc)
             else:
                 hypo = token2word(hypo, dic, args.space)
