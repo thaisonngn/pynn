@@ -252,14 +252,20 @@ def token2punct(model, device, seg, lctx, rctx, dic, space):
         token = dic[el-2]
         if token.startswith(space) and len(tokens) > 0:
             word, norm = ''.join(tokens), pred[j-1]
-            if len(set(bmes2))==1 and bmes2[0]>0:
-                word2 = model.model.words[bmes2[0]-1]
-                if word[:len(word2)]==word2.lower():
-                    word = word2 + word[len(word2):]
-            elif norm > 7:
-                word = word.capitalize()
-                norm -= 7
+
+            memoryUsed = False
+            ids = set(bmes2)
+            for id in ids:
+                if id!=0:
+                    word2 = model.model.words[id-1]
+                    if word[:len(word2)]==word2.lower():
+                        word = word2 + word[len(word2):]
+                        memoryUsed = True
+                        break
+
             if norm > 7:
+                if not memoryUsed:
+                    word = word.capitalize()
                 norm -= 7
             if norm > 1:
                 word += puncts[norm]
@@ -271,18 +277,23 @@ def token2punct(model, device, seg, lctx, rctx, dic, space):
 
     if len(tokens) > 0:
         word, norm = ''.join(tokens), pred[j]
-        if len(set(bmes2))==1 and bmes2[0]>0:
-            word2 = model.model.words[bmes2[0]-1]
-            if word[:len(word2)]==word2.lower():
-                word = word2 + word[len(word2):]
-        elif norm > 7:
-            word = word.capitalize()
-            norm -= 7
+        
+        memoryUsed = False
+        ids = set(bmes2)
+        for id in ids:
+            if id!=0:
+                word2 = model.model.words[id-1]
+                if word[:len(word2)]==word2.lower():
+                    word = word2 + word[len(word2):]
+                    memoryUsed = True
+                    break
+
         if norm > 7:
+            if not memoryUsed:
+                word = word.capitalize()
             norm -= 7
         if norm > 1:
             word += puncts[norm]
         hypo.append(word)
 
-    #print("MYPRINT",hypo)
     return hypo
