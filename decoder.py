@@ -256,7 +256,7 @@ def token2punct(model, device, seg, lctx, rctx, dic, space):
             memoryUsed = False
             ids = set(bmes2)
             for id in ids:
-                if id!=0:
+                if id>0:
                     word2 = model.model.words[id-1]
                     if word[:len(word2)]==word2.lower():
                         word = word2 + word[len(word2):]
