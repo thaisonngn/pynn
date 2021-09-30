@@ -13,11 +13,11 @@ OMP_NUM_THREADS=8 $pythonCMD worker.py \
 	--server "localhost" \
 	--port 60020 \
 	--name "asr-en" \
-	--fingerprint "en-EU-worker$1" \
+	--fingerprint "en-EU-memory$1" \
 	--outfingerprint "en-EU" \
         --inputType "audio" \
         --outputType "text" \
         --dict "model/bpe4k.dic" \
         --model "model/s2s-lstm.dic" \
         --punct "model/punct.dic" \
-        --device 'cpu' --beam-size 6 --new-words words$1.txt
+        --device 'cpu' --beam-size 6 --new-words "http://ufallab.ms.mff.cuni.cz/~kumar/elitr/live-adaptation/memory-$1.txt" 

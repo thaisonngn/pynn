@@ -9,6 +9,7 @@ import numpy as np
 import time
 import threading
 import argparse
+import urllib.request
 
 from pynn.util import audio
 from decoder import init_asr_model, decode, token2word, clean_noise
@@ -105,10 +106,14 @@ def data_callback(i,sampleA):
 def insert_new_words(model, args):
     while True:
         words = []
-        with open(args.new_words,"r") as f:
-            for line in f:
-                line = line.strip()
-                words.append(line)
+        if "http" in args.new_words:
+            for line in urllib.request.urlopen(args.new_words):
+                words.append(line.decode('utf-8').strip())
+        else:
+            with open(args.new_words,"r") as f:
+                for line in f:
+                    line = line.strip()
+                    words.append(line)
 
         model.new_words(words)
 
