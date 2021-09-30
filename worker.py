@@ -105,17 +105,18 @@ def data_callback(i,sampleA):
 
 def insert_new_words(model, args):
     while True:
-        words = []
-        if "http" in args.new_words:
-            for line in urllib.request.urlopen(args.new_words):
-                words.append(line.decode('utf-8').strip())
-        else:
-            with open(args.new_words,"r") as f:
-                for line in f:
-                    line = line.strip()
-                    words.append(line)
+        if time.time() - model.time < 10: 
+            words = []
+            if "http" in args.new_words:
+                for line in urllib.request.urlopen(args.new_words):
+                    words.append(line.decode('utf-8').strip())
+            else:
+                with open(args.new_words,"r") as f:
+                    for line in f:
+                        line = line.strip()
+                        words.append(line)
 
-        model.new_words(words)
+            model.new_words(words)
 
         time.sleep(1)
 

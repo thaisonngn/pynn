@@ -145,9 +145,13 @@ class ModelWrapper():
         self.sp.load("/".join(args.dict.split("/")[:-1])+"/m.model")
 
         self.words = None
+        self.time = time.time()
+
         self.device = args.device
 
     def encode(self, src_seq, src_mask):
+        self.time = time.time()
+
         enc_out, enc_mask, _ = self.model.encoder(src_seq, src_mask)
         enc_out2 = self.model.project2(enc_out)
         self.lock.acquire()
