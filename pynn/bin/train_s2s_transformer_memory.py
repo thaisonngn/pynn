@@ -77,10 +77,9 @@ parser.add_argument('--n-dec-mem', type=int, default=4)
 parser.add_argument('--n-seq-max-epoch', type=int, default=500000)
 parser.add_argument('--encode-values', action='store_true')
 parser.add_argument('--no-skip-conn', action='store_true')
-parser.add_argument('--version-gate', type=int, default=0)
 parser.add_argument('--prob-perm', type=float, default=0.5)
-parser.add_argument('--clas-model', action='store_true')
 parser.add_argument('--freeze-baseline', action='store_true')
+parser.add_argument('--shared-memory-decoder', action='store_true')
 
 def create_model(args, device):
     n_enc_head = args.n_head if args.n_enc_head==0 else args.n_enc_head
@@ -103,14 +102,12 @@ def create_model(args, device):
         'emb_drop': args.emb_drop,
         'enc_drop': args.enc_drop,
         'dec_drop': args.dec_drop,
-        'size_memory': args.n_memory,
         'n_enc_mem': args.n_enc_mem,
         'n_dec_mem': args.n_dec_mem,
         'encode_values': args.encode_values,
         'no_skip_conn_mem': args.no_skip_conn,
-        'version_gate': args.version_gate,
         'prob_perm': args.prob_perm,
-        'clas_model': args.clas_model}
+        'shared_memory_decoder': args.shared_memory_decoder}
     model = TransformerMemory(**params)
     save_object_param(model, params, args.model_path+'/model.cfg')
     return model

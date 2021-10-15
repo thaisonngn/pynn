@@ -9,7 +9,7 @@ from .transformer_layer import DecoderLayer, PositionwiseFF
 from .attn import MultiHeadedAttention
 
 class AttentionMemory(nn.Module):
-    def __init__(self, d_model, size_memory):
+    def __init__(self, d_model):
         super().__init__()
 
         self.linear = nn.Linear(d_model, d_model)
@@ -44,20 +44,14 @@ def get_key_pad_mask(seq_k, seq_q):
     return padding_mask.unsqueeze(1).expand(-1, len_q, -1)  # b x lq x lk
 
 class AttentionMemoryEntry(nn.Module):
-    def __init__(self, n_head, d_model, d_inner, dropout, version_gate=0):
+    def __init__(self, n_head, d_model, d_inner, dropout):
         super().__init__()
 
-        self.version_gate = version_gate
-
         self.st_attn = MultiHeadedAttention(n_head, d_model, dropout, residual=True)
-
         self.pos_ffn = PositionwiseFF(d_model, d_inner, dropout, residual=True)
-        self.pos_ffn2 = PositionwiseFF(d_model, d_inner, dropout, residual=True)
-        self.norms = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(2)])
+        self.norm = nn.LayerNorm(d_model)
 
     def forward(self, dec_output, tgt_mask, mem_attn_out, enc_out_mem, tgt_emb_mem, tgt_mask_mem):
-        dec_output = self.norms[0](dec_output)
-
         b, l_tar, _ = mem_attn_out.shape
 
         samples = mem_attn_out.argmax(-1).view(-1,1)-1  # b*l_tar x 1
@@ -81,7 +75,7 @@ class AttentionMemoryEntry(nn.Module):
                                       value=tgt_emb_mem[samples3], samples=inv)  # ? x 1 x d_model
 
             st_attn = self.pos_ffn(st_attn)
-            st_attn = self.norms[1](st_attn)
+            st_attn = self.norm(st_attn)
 
             # undo filter -1´s
             mask2 = torch.arange(b*l_tar, device=mask.device)[mask].unsqueeze(-1).unsqueeze(-1).expand(-1, -1, st_attn.shape[-1])
@@ -90,27 +84,20 @@ class AttentionMemoryEntry(nn.Module):
 
             st_attn = st_attn.view(b, l_tar, -1)  # b x l_tar x d_model
 
-            if self.version_gate==0:
-                dec_output = dec_output + st_attn
-            elif self.version_gate==1:
-                raise NotImplementedError
-
-        dec_output = self.pos_ffn2(dec_output)
-        return dec_output
+            return st_attn
+        else:
+            return None
 
 class DecoderLayerMemory(DecoderLayer):
-    def __init__(self, d_model, d_inner, n_head, dropout=0.1, n_enc_head=0, rel_pos=False,
-                 size_memory=200, version_gate=0, clas_model=False):
+    def __init__(self, d_model, d_inner, n_head, dropout=0.1, n_enc_head=0, rel_pos=False, use_mapping_output=False):
         super().__init__(d_model, d_inner, n_head, dropout=dropout, n_enc_head=n_enc_head, rel_pos=rel_pos)
 
-        self.clas_model = clas_model
+        self.attentionMemory = AttentionMemory(d_model)
+        self.attentionMemoryEntry = AttentionMemoryEntry(n_head, d_model, d_inner, dropout)
+        self.norm = nn.LayerNorm(d_model)
+        self.pos_ffn2 = PositionwiseFF(d_model, d_inner, dropout, residual=True)
 
-        self.attentionMemory = AttentionMemory(d_model, size_memory)
-
-        if not self.clas_model:
-            self.attentionMemoryEntry = AttentionMemoryEntry(n_head, d_model, d_inner, dropout, version_gate=version_gate)
-        else:
-            self.linear = nn.Linear(d_model, d_model)
+        self.use_mapping_output = use_mapping_output
 
     def forward(self, dec_inp, enc_out, slf_mask=None, dec_enc_mask=None, scale=1.,
                 enc_out_mem_mean=None, tgt_mask=None, mem_attn_out=None, enc_out_mem=None, tgt_emb_mem=None, tgt_mask_mem=None):
@@ -118,14 +105,18 @@ class DecoderLayerMemory(DecoderLayer):
         dec_output, attn = self.enc_attn(dec_output, enc_out, mask=dec_enc_mask, scale=scale)
         dec_output = self.pos_ffn(dec_output, scale=scale) # b x l_tar x d_model
 
-        mem_attn_out = self.attentionMemory(dec_output, enc_out_mem_mean, mem_attn_out) # b x l_tar x n_st
-        if not self.clas_model:
-            dec_output = self.attentionMemoryEntry(dec_output, tgt_mask, mem_attn_out, enc_out_mem, tgt_emb_mem, tgt_mask_mem)
+        if not self.use_mapping_output:
+            mem_attn_out = self.attentionMemory(dec_output, enc_out_mem_mean, mem_attn_out) # b x l_tar x n_st
+        dec_output = self.norm(dec_output)
+        if not self.use_mapping_output:
+            st_attn = self.attentionMemoryEntry(dec_output, tgt_mask, mem_attn_out, enc_out_mem, tgt_emb_mem, tgt_mask_mem)
+            if st_attn is not None:
+                dec_output = dec_output + st_attn
         else:
-            v = self.linear(enc_out_mem_mean) # n_mem x d_model
-            mem_attn = torch.einsum("b l n, n d -> b l d",F.softmax(mem_attn_out,-1),v)
-            dec_output = dec_output + mem_attn
+            dec_output = dec_output + self.mapping_output(dec_output)
+            mem_attn_out = None
 
+        dec_output = self.pos_ffn2(dec_output)
         return dec_output, mem_attn_out
 
 def printms(s,x):
