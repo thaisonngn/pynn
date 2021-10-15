@@ -251,6 +251,7 @@ def token2punct(model, device, seg, lctx, rctx, dic, space):
     pred = pred[len(lctx):]
     if len(rctx) > 0: pred = pred[:-(len(rctx))]
 
+    word_rest = ""
     hypo, tokens, bmes2 = [], [], []
     for j, (el,bme) in enumerate(zip(seq,bmes)):
         token = dic[el-2]
@@ -258,20 +259,28 @@ def token2punct(model, device, seg, lctx, rctx, dic, space):
             word, norm = ''.join(tokens), pred[j-1]
 
             memoryUsed = False
-            ids = set(bmes2)
-            for id in ids:
-                if id>0 and len(model.model.words)>=id:
-                    word2 = model.model.words[id-1]
-                    if word[:len(word2)]==word2.lower():
-                        word = word2 + word[len(word2):]
-                        memoryUsed = True
-                        break
+            if word==word_rest.lower()[:len(word)]:
+                word = word_rest[:len(word)]
+                word_rest = word_rest[len(word)+1:]
+                memoryUsed = True
+            else:
+                ids = set(bmes2)
+                for id in ids:
+                    if 0<id<=len(model.model.words):
+                        word2 = model.model.words[id-1]
+                        if word==word2.lower()[:len(word)]:
+                            word = word2[:len(word)]
+                            word_rest = word2[len(word)+1:]
+                            memoryUsed = True
+                            break
+                if not memoryUsed:
+                    word_rest = ""
 
             if norm > 7:
                 if not memoryUsed:
                     word = word.capitalize()
                 norm -= 7
-            if norm > 1:
+            if norm > 1 and word_rest == "":
                 word += puncts[norm]
             hypo.append(word)
             tokens = []
@@ -283,20 +292,28 @@ def token2punct(model, device, seg, lctx, rctx, dic, space):
         word, norm = ''.join(tokens), pred[j]
         
         memoryUsed = False
-        ids = set(bmes2)
-        for id in ids:
-            if id>0 and len(model.model.words)>=id:
-                word2 = model.model.words[id-1]
-                if word[:len(word2)]==word2.lower():
-                    word = word2 + word[len(word2):]
-                    memoryUsed = True
-                    break
+        if word==word_rest.lower()[:len(word)]:
+             word = word_rest[:len(word)]
+             word_rest = word_rest[len(word)+1:]
+             memoryUsed = True
+        else:
+            ids = set(bmes2)
+            for id in ids:
+                if 0<id<=len(model.model.words):
+                    word2 = model.model.words[id-1]
+                    if word==word2.lower()[:len(word)]:
+                        word = word2[:len(word)]
+                        word_rest = word2[len(word)+1:]
+                        memoryUsed = True
+                        break
+            if not memoryUsed:
+                word_rest = ""
 
         if norm > 7:
             if not memoryUsed:
                 word = word.capitalize()
             norm -= 7
-        if norm > 1:
+        if norm > 1 and word_rest == "":
             word += puncts[norm]
         hypo.append(word)
 
