@@ -193,7 +193,7 @@ if __name__ == '__main__':
     # load model
 
     mdic = torch.load(args.model_dic)
-    mdic['params']['size_memory'] = len(words)
+    #mdic['params']['size_memory'] = len(words)
     model = load_object(mdic['class'], mdic['module'], mdic['params'])
     model = model.to(device)
     model.load_state_dict(mdic['state'])
