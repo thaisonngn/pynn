@@ -189,7 +189,7 @@ def punct_segs(punct, device, dic, space, segs):
     return segs
 
 
-def update_and_send(punct, device, dic, space, segs, new_seg, wc):
+def update_and_send(punct, device, dic, space, segs, new_seg, wc, completed=False):
     if len(segs) > 0:
         last_seg = segs[-1]
         if last_seg.start < new_seg.start:
@@ -234,7 +234,10 @@ def update_and_send(punct, device, dic, space, segs, new_seg, wc):
         send_segs(old_segs, args.outputType)
 
     segs = punct_segs(punct, device, dic, space, new_segs)
-    print('Sending partial: ' + seg2text(segs))
+    if not completed:
+        print('Sending partial: ' + seg2text(segs))
+    else:
+        print('Sending final: ' + seg2text(segs))
     send_segs(segs, args.outputType)
 
     punct.model.lock.release()
@@ -373,7 +376,7 @@ try:
                 if punct is not None:
                     #end = start + frames*10
                     new_seg = Segment(clean_noise(hypo, best_memory_entry, dic, args.space), start, end)
-                    cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc)
+                    cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc, completed=False)
                 else:
                     hypo = token2word(hypo, dic, args.space)
                     print('Sending partial: ' + ' '.join(hypo))
@@ -389,7 +392,7 @@ try:
             best_memory_entry = best_memory_entry[:-1]
             if punct is not None:
                 new_seg = Segment(clean_noise(hypo, best_memory_entry, dic, args.space), start, end)
-                cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc)
+                cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc, completed=True)
             else:
                 hypo = token2word(hypo, dic, args.space)
                 print('Sending final: ' + ' '.join(hypo))
