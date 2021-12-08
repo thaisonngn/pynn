@@ -233,6 +233,8 @@ def update_and_send(punct, device, dic, space, segs, new_seg, wc, completed=Fals
                 if br: break
         send_segs(old_segs, args.outputType)
 
+    #if completed:
+        #print(" ".join(token2word([x for s in new_segs for x in s.hypo],dic,space)))
     segs = punct_segs(punct, device, dic, space, new_segs)
     if not completed:
         print('Sending partial: ' + seg2text(segs))
