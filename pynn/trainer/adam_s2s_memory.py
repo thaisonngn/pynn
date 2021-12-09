@@ -1,4 +1,4 @@
-# Copyright 2019 Thai-Son Nguyen
+# Copyright 2019 Thai-Son Nguyen, Christian Huber
 # Licensed under the Apache License, Version 2.0 (the "License")
 
 import time

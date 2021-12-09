@@ -1,3 +1,5 @@
+# Copyright 2019 Christian Huber
+# Licensed under the Apache License, Version 2.0 (the "License")
 
 import torch
 import torch.nn as nn
