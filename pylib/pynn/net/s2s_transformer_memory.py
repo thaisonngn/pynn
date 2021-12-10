@@ -39,7 +39,7 @@ class DecoderMemory(nn.Module):
         self.layer_norm = nn.LayerNorm(d_model)
         self.layer_drop = layer_drop
 
-    def forward(self, tgt_seq, enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean):
+    def forward(self, tgt_seq, enc_out, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, tgt_emb_mem2, tgt_mask_mem2, enc_out_mem2, enc_out_mem_mean2):
         # -- Forward
         dec_out = self.emb(tgt_seq) * self.scale
         tgt_mask = tgt_seq.gt(0)
@@ -81,7 +81,8 @@ class DecoderMemory(nn.Module):
                 dec_out, enc_out, slf_mask=slf_mask,
                 dec_enc_mask=attn_mask, scale=scale,
                 enc_out_mem_mean=enc_out_mem_mean, tgt_mask=tgt_mask, mem_attn_out=mem_attn_out,
-                enc_out_mem=enc_out_mem, tgt_emb_mem=tgt_emb_mem, tgt_mask_mem=tgt_mask_mem)
+                enc_out_mem=enc_out_mem, tgt_emb_mem=tgt_emb_mem, tgt_mask_mem=tgt_mask_mem,
+                tgt_emb_mem2=tgt_emb_mem2, tgt_mask_mem2=tgt_mask_mem2, enc_out_mem2=enc_out_mem2, enc_out_mem_mean2=enc_out_mem_mean2)
 
             mem_attn_outs.append(mem_attn_out)
 
@@ -179,10 +180,10 @@ class TransformerMemory(nn.Module):
             return enc_out_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean
 
     def decode(self, tgt_seq, enc_out, label_mem=None, gold=None, inference=True):
-        enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = enc_out
+        enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, tgt_emb_mem2, tgt_mask_mem2, enc_out_mem2, enc_out_mem_mean2 = enc_out
 
         dec_out_orig = self.decoder(tgt_seq, enc_out, enc_mask)[0]
-        dec_out_mem, mem_attn_outs = self.decoder_mem(tgt_seq, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean)
+        dec_out_mem, mem_attn_outs = self.decoder_mem(tgt_seq, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, tgt_emb_mem2, tgt_mask_mem2, enc_out_mem2, enc_out_mem_mean2)
 
         dec_out_orig = F.softmax(dec_out_orig.to(torch.float32),-1)
         dec_out_mem = F.softmax(dec_out_mem.to(torch.float32), -1)

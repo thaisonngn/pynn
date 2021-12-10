@@ -113,14 +113,14 @@ class DecoderLayerMemory(DecoderLayer):
             self.linear = nn.Linear(d_model, d_model)
 
     def forward(self, dec_inp, enc_out, slf_mask=None, dec_enc_mask=None, scale=1.,
-                enc_out_mem_mean=None, tgt_mask=None, mem_attn_out=None, enc_out_mem=None, tgt_emb_mem=None, tgt_mask_mem=None):
+                enc_out_mem_mean=None, tgt_mask=None, mem_attn_out=None, enc_out_mem=None, tgt_emb_mem=None, tgt_mask_mem=None, tgt_emb_mem2=None, tgt_mask_mem2=None, enc_out_mem2=None, enc_out_mem_mean2=None):
         dec_output = self.slf_attn(dec_inp, mask=slf_mask, scale=scale)[0]
         dec_output, attn = self.enc_attn(dec_output, enc_out, mask=dec_enc_mask, scale=scale)
         dec_output = self.pos_ffn(dec_output, scale=scale) # b x l_tar x d_model
 
         mem_attn_out = self.attentionMemory(dec_output, enc_out_mem_mean, mem_attn_out) # b x l_tar x n_st
         if not self.clas_model:
-            dec_output = self.attentionMemoryEntry(dec_output, tgt_mask, mem_attn_out, enc_out_mem, tgt_emb_mem, tgt_mask_mem)
+            dec_output = self.attentionMemoryEntry(dec_output, tgt_mask, mem_attn_out, enc_out_mem2, tgt_emb_mem2, tgt_mask_mem2)
         else:
             v = self.linear(enc_out_mem_mean) # n_mem x d_model
             mem_attn = torch.einsum("b l n, n d -> b l d",F.softmax(mem_attn_out,-1),v)

@@ -10,6 +10,7 @@ import time
 import threading
 import argparse
 import urllib.request
+import xml.etree.ElementTree as ET
 
 from pynn.util import audio
 from decoder import init_asr_model, decode, token2word, clean_noise
@@ -39,12 +40,22 @@ def segmenter_thread(mcloud):
             else:
                 print("WORKER INFO received client request ==> waiting for packages")
 
+            if args.new_words=="None":
+                send_new_words()
+
             proceed = True
             while (proceed):
                 packet = MCloudPacketRCV(mcloud)
 
                 type = packet.packet_type()
                 if packet.packet_type() == 3:
+                    if args.new_words=="None":
+                        root = ET.fromstring(packet.xml_string)
+                        if "subType" in root.attrib and root.attrib["subType"]=="words":
+                            text = root[0].text
+                            processing_set_new_words(text.split("\n") if text is not None else [])
+                            send_new_words()
+                            continue
                     mcloud.process_data_async(packet, data_callback)
                 elif packet.packet_type() == 7:  # MCloudFlush
                     """
@@ -102,6 +113,13 @@ def data_callback(i,sampleA):
     sample = np.asarray(sampleA, dtype=np.int16)
     segmenter.append_signal(sample.tobytes())
     return 0
+
+def processing_set_new_words(words=[]):
+    model.new_words(words)
+
+def send_new_words():
+    words = "\n".join([x.replace(" ","\t") for x in model.words])
+    send_hypo(0,0,words,"text")
 
 def insert_new_words(model, args):
     while True:
@@ -316,8 +334,11 @@ print("Done.")
 record = threading.Thread(target=segmenter_thread, args=(mcloud_w,))
 record.start()
 
-new_words = threading.Thread(target=insert_new_words, args=(model,args))
-new_words.start()
+if args.new_words!="None":
+    new_words = threading.Thread(target=insert_new_words, args=(model,args))
+    new_words.start()
+else:
+    processing_set_new_words()
 
 try:
     cur_segs, wc = [], 0

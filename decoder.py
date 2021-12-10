@@ -156,14 +156,14 @@ class ModelWrapper():
         enc_out2 = self.model.project2(enc_out)
         self.lock.acquire()
         enc_mem = self.enc_mem
+        enc_mem2 = self.enc_mem2
 
-        return enc_out, enc_out2, enc_mask, *enc_mem 
+        return enc_out, enc_out2, enc_mask, *enc_mem, *enc_mem2 
 
     def decode(self, enc, seq):
         enc = list(enc)
         enc[0] = enc[0].expand(seq.size(0), -1, -1)
-        if len(enc)==7:
-            enc[1] = enc[1].expand(seq.size(0), -1, -1)
+        enc[1] = enc[1].expand(seq.size(0), -1, -1)
         enc[2] = enc[2].expand(seq.size(0), -1)
 
         return self.model.decode(seq, enc)
@@ -176,8 +176,8 @@ class ModelWrapper():
         return torch.log_softmax(logit, -1)
 
     def get_best_memory_entry(self, enc, tgt_seq):
-        enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean = enc
-        _, mem_attn_outs = self.model.decoder_mem(tgt_seq, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean)
+        enc_out, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, tgt_emb_mem2, tgt_mask_mem2, enc_out_mem2, enc_out_mem_mean2 = enc
+        _, mem_attn_outs = self.model.decoder_mem(tgt_seq, enc_out2, enc_mask, tgt_emb_mem, tgt_mask_mem, enc_out_mem, enc_out_mem_mean, tgt_emb_mem2, tgt_mask_mem2, enc_out_mem2, enc_out_mem_mean2)
         return mem_attn_outs[-1].argmax(-1)
 
     def new_words(self, words):
@@ -186,21 +186,31 @@ class ModelWrapper():
                 self.words = words
 
                 if len(self.words)>0:
-                    tgt_ids_mem = self.words_to_tensor()
+                    tgt_ids_mem, tgt_ids_mem2 = self.words_to_tensor()
                 else:
                     tgt_ids_mem = torch.ones(1,2,dtype=torch.int64,device=self.tgt_ids_mem.device)
                     tgt_ids_mem[:,1] = 2
+                    tgt_ids_mem2 = tgt_ids_mem
             
                 self.enc_mem = self.model.encode_memory(tgt_ids_mem)
+                self.enc_mem2 = self.model.encode_memory(tgt_ids_mem2)
                 print("!!!!! Updated memory encoding !!!!!")
 
     def words_to_tensor(self):
-        bpes = [[1] + [x + 2 for x in self.sp.encode_as_ids(w.lower())] + [2] for w in self.words]
+        words = [w if not "->" in w else w.split("->")[0] for w in self.words]
+        words2 = [w if not "->" in w else w.split("->")[1] for w in self.words]
+
+        bpes = [[1] + [x + 2 for x in self.sp.encode_as_ids(w.lower())] + [2] for w in words]
+        bpes2 = [[1] + [x + 2 for x in self.sp.encode_as_ids(w.lower())] + [2] for w in words2]
 
         tmp = torch.zeros(len(bpes), max([len(x) for x in bpes]), dtype=torch.int64)
         for i, word in enumerate(bpes):
             tmp[i, :len(word)] = torch.as_tensor(word)
-        return tmp.to(self.device)
+
+        tmp2 = torch.zeros(len(bpes2), max([len(x) for x in bpes2]), dtype=torch.int64)
+        for i, word in enumerate(bpes2):
+            tmp2[i, :len(word)] = torch.as_tensor(word)
+        return tmp.to(self.device), tmp2.to(self.device)
 
 def init_punct_model(args):
     device = torch.device(args.device)
@@ -268,6 +278,8 @@ def token2punct(model, device, seg, lctx, rctx, dic, space):
                 for id in ids:
                     if 0<id<=len(model.model.words):
                         word2 = model.model.words[id-1]
+                        if "->" in word2:
+                            word2 = word2.split("->")[1]
                         if word==word2.lower()[:len(word)]:
                             word = word2[:len(word)]
                             word_rest = word2[len(word)+1:]
@@ -301,6 +313,8 @@ def token2punct(model, device, seg, lctx, rctx, dic, space):
             for id in ids:
                 if 0<id<=len(model.model.words):
                     word2 = model.model.words[id-1]
+                    if "->" in word2:
+                        word2 = word2.split("->")[1]
                     if word==word2.lower()[:len(word)]:
                         word = word2[:len(word)]
                         word_rest = word2[len(word)+1:]
