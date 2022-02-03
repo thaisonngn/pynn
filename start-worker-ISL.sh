@@ -12,6 +12,7 @@ FILEID="${2:-/project/OML/error_correction/data/spelled_words.txt}"
 WORKERID="${3:-Stefan}"
 SERVER="${4:-i13srv53.ira.uka.de}"
 PORT="${5:-60019}"
+BEAMSIZE="${6:-4}"
 
 SYSTEM_PATH=`dirname "$0"`
 
@@ -34,4 +35,4 @@ CUDA_VISIBLE_DEVICES=$GPUID OMP_NUM_THREADS=8 $pythonCMD worker.py \
         --dict "model/bpe4k.dic" \
         --model "model/s2s-lstm.dic" \
         --punct "model/punct.dic" \
-        --device $device --beam-size 4 --new-words $FILEID
+        --device $device --beam-size $BEAMSIZE --new-words $FILEID

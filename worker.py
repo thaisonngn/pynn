@@ -42,6 +42,8 @@ def segmenter_thread(mcloud):
 
             if args.new_words=="None":
                 send_new_words()
+            else:
+                insert_new_words(model,args,b=True)
 
             proceed = True
             while (proceed):
@@ -49,14 +51,15 @@ def segmenter_thread(mcloud):
 
                 type = packet.packet_type()
                 if packet.packet_type() == 3:
-                    if args.new_words=="None":
-                        root = ET.fromstring(packet.xml_string)
-                        if "subType" in root.attrib and root.attrib["subType"]=="words":
+                    root = ET.fromstring(packet.xml_string)
+                    if "subType" in root.attrib and root.attrib["subType"]=="words":
+                        if args.new_words=="None":
                             text = root[0].text
                             processing_set_new_words(text.split("\n") if text is not None else [])
                             send_new_words()
                             continue
-                    mcloud.process_data_async(packet, data_callback)
+                    else:
+                        mcloud.process_data_async(packet, data_callback)
                 elif packet.packet_type() == 7:  # MCloudFlush
                     """
                     a flush message has been received -> wait (block) until all pending packages
@@ -121,7 +124,7 @@ def send_new_words():
     words = "\n".join([x.replace(" ","\t") for x in model.words])
     send_hypo(0,0,words,"text")
 
-def insert_new_words(model, args):
+def insert_new_words(model, args, b=False):
     while True:
         if time.time() - model.time < 10: 
             words = []
@@ -136,6 +139,8 @@ def insert_new_words(model, args):
 
             model.new_words(words)
 
+        if b:
+            break
         time.sleep(1)
 
 def send_hypo(start, end, hypo, output):

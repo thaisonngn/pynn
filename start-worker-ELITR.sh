@@ -22,7 +22,7 @@ log=logs/asr-en-mediator1.worker.log
 CUDA_VISIBLE_DEVICES=$GPUID OMP_NUM_THREADS=8 $pythonCMD worker.py \
 	--server "localhost" \
 	--port 60020 \
-	--name "asr-en" \
+	--name "asr-en-memory" \
 	--fingerprint "en-EU-memory$FILEID" \
 	--outfingerprint "en-EU" \
         --inputType "audio" \
