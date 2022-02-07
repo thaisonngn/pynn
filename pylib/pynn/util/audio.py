@@ -5,7 +5,7 @@ import math
 import numpy as np
 import scipy.io.wavfile
 
-def filter_bank(sample_rate, nfft, filters):    
+def filter_bank(sample_rate=16000, nfft=256, filters=40):    
     low_freq_mel = 0
     high_freq_mel = (2595 * np.log10(1 + (sample_rate / 2) / 700))  # Convert Hz to Mel
     mel_points = np.linspace(low_freq_mel, high_freq_mel, filters + 2, dtype="float32")  # Equally spaced in Mel scale

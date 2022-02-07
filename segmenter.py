@@ -58,7 +58,7 @@ class AudioSegment():
         return len(self.data) // (16*2)
 
 class Segmenter():
-    def __init__(self, sample_rate, VAD_aggressive, padding_duration_ms, frame_duration_ms, rate_begin, rate_end):
+    def __init__(self, sample_rate=16000, VAD_aggressive=2, padding_duration_ms=450, frame_duration_ms=30, rate_begin=0.65, rate_end=0.55):
 
         self.vad = webrtcvad.Vad(VAD_aggressive)
         self.padding_duration_ms = padding_duration_ms
@@ -76,6 +76,8 @@ class Segmenter():
         self.ring_buffer = collections.deque(maxlen=num_padding_frames)
         self.start_chunk = 0
         self.temp = b''
+
+        self.reset()
 
     def reset(self):
         if self.segment is not None:
@@ -114,7 +116,7 @@ class Segmenter():
                     for f, s in self.ring_buffer:
                         self.segment.append(f.bytes)
                     self.segs.append(self.segment)
-                    print('New segment added.')
+                    #print('New segment added.')
                     self.ring_buffer.clear()
             else:
                 self.segment.append(frame.bytes)

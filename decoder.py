@@ -84,7 +84,7 @@ def init_asr_model(args):
     dic = None
     if args.dict is not None:
         dic = {}
-        fin = open(args.dict, 'r')
+        fin = open(args.dict, 'r', encoding="utf8")
         for line in fin:
             tokens = line.split()
             dic[int(tokens[1])] = tokens[0]
@@ -107,7 +107,7 @@ def decode(model, device, args, adc, fbank_mat, start=0, prefix=[1]):
     feats = feats - feats.mean(axis=0, keepdims=True)
      
     frames = (feats.shape[0])
-    print("Decoding for audio segment of %d frames" % frames)
+    #print("Decoding for audio segment of %d frames" % frames)
     if frames < 10: return [], None, None
     
     space, beam_size, max_len = args.space, args.beam_size, args.max_len
@@ -194,7 +194,7 @@ class ModelWrapper():
             
                 self.enc_mem = self.model.encode_memory(tgt_ids_mem)
                 self.enc_mem2 = self.model.encode_memory(tgt_ids_mem2)
-                print("!!!!! Updated memory encoding !!!!!")
+                #print("!!!!! Updated memory encoding !!!!!")
 
     def words_to_tensor(self):
         words = [w if not "->" in w else w.split("->")[0] for w in self.words]

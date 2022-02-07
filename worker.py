@@ -1,7 +1,3 @@
-# cython: language_level=3
-from MCloud import MCloudWrap
-from MCloud import mcloudpacketdenit, mcloudpacketdenit
-from MCloudPacketRCV import MCloudPacketRCV
 
 import os
 import torch
@@ -10,7 +6,6 @@ import time
 import threading
 import argparse
 import urllib.request
-import xml.etree.ElementTree as ET
 
 from pynn.util import audio
 from decoder import init_asr_model, decode, token2word, clean_noise
@@ -18,111 +13,168 @@ from decoder import init_punct_model, token2punct
 
 from segmenter import Segmenter
 
-def segmenter_thread(mcloud):
-    stream_id = "123456789".encode("utf-8")
+from typing             import Any, Dict, Optional, cast, List
+from abc                import ABCMeta, abstractmethod
+import pyaudio
 
-    connected = 1
-    while True:
+import warnings
+warnings.filterwarnings("ignore")
+
+class BaseAdapter():
+    def __init__(self, format: Any, chunksize: int = 1024) -> None:
+        self.rate = 16000
+        self.chunksize = chunksize
+        self.format = format
+        self.channel_count = 1
+        self.chosen_channel: Optional[int] = None
+
+    def available(self) -> bool:
+        """
+        Should return if the backend is available and print an error message
+        if not. Called before setting input
+        """
+        return True
+
+    @abstractmethod
+    def get_stream(self, **kwargs) -> Any:
+        """
+        Should return the stream for reading
+        """
+        pass
+
+    @abstractmethod
+    def read(self, chunksize: Optional[int] = None) -> bytes:
+        """
+        Should return a chunk of bytes from the audio device.
+        If chunksize is None, use internal value or any size.
+        Might block depending on device.
+        chunksize might be ignored
+        """
+        pass
+
+    def chunk_modify(self, chunk: bytes) -> bytes:
+        """
+        Allows modifying of the chunk
+        """
+        return chunk
+
+    @abstractmethod
+    def cleanup(self) -> None:
+        """
+        Should be called after the session was closed
+        """
+        pass
+
+    @abstractmethod
+    def set_input(self, input: Any) -> None:
+        """
+        Should be called to set an input, which can be for example an id, string etc
+        """
+        pass
+
+class PortaudioStream(BaseAdapter):
+    def __init__(self, **kwargs) -> None:
+        self.input_id: Optional[int]             = None
+        self._stream:  Optional[pyaudio.Stream]  = None
+        self._pyaudio: Optional[pyaudio.PyAudio] = None
+        super().__init__(format=pyaudio.paInt16, chunksize=kwargs["chunksize"])
+
+    def get_stream(self, **kwargs) -> pyaudio.Stream:
+        if self.input_id is None:
+            raise BugException()
+        if self._stream is None:
+            p = self.pyaudio
+            self._stream = p.open(
+                format              = self.format,
+                input_device_index  = self.input_id,
+                channels            = self.channel_count,
+                rate                = self.rate,
+                input               = True,
+                frames_per_buffer   = self.chunksize)
+        return self._stream
+
+    def read(self, chunksize: Optional[int] = None) -> bytes:
+        return cast(bytes, self.get_stream().read(self.chunksize, exception_on_overflow=False))
+
+    def chunk_modify(self, chunk: bytes) -> bytes:
+        if self.chosen_channel is not None and self.channel_count > 1:
+            # filter out specific channel using numpy
+            logging.info("Using numpy to filter out specific channel.")
+            data = np.fromstring(chunk, dtype='int16').reshape((-1, self.channel_count))
+            data = data[:, self.chosen_channel - 1]
+            if watchdog:
+                watchdog.sent_audio(data)
+            chunk = data.tostring()
+        return chunk
+
+    def cleanup(self) -> None:
+        if self._stream is not None:
+            self._stream.stop_stream()
+            #logger.debug("Stopped pyaudio stream")
+            self._stream.close()
+            #logger.debug("Closed pyaudio stream")
+
+        if self._pyaudio is not None:
+            self._pyaudio.terminate()
+            #logger.debug("Terminated pyaudio")
+
+    def set_input(self, id: int) -> None:
+        devices = self.get_audio_devices()
         try:
-            if connected == 1:
-                # connect to mediator
-                connected = mcloud.connect(serverHost.encode("utf-8"), serverPort)
-                if connected == 1:
-                    print("ERROR Could not connect to the Mediator. Reconnect in 10 seconds.")
-                    time.sleep(10); continue
-                else:
-                    print("WORKER INFO Connection established ==> waiting for clients.")
-        
-            # wait for client
-            if mcloud.wait_for_client(stream_id) == 1:
-                print("WORKER ERROR while waiting for client")
-                time.sleep(1); connected = 1; continue
-            else:
-                print("WORKER INFO received client request ==> waiting for packages")
+            devName = devices[id]
+            #logger.info(f'Using audio input device: {id} ({devName})')
+            self.input_id = id
+        except (ValueError, KeyError) as e:
+            #logger.error(f'Unknown audio device: {id}')
+            self.print_all_devices()
+            sys.exit(1)
 
-            if args.new_words=="None":
-                send_new_words()
-            else:
-                insert_new_words(model,args,b=True)
+    def get_audio_devices(self) -> Dict[int, str]:
+        devices = {}
 
-            proceed = True
-            while (proceed):
-                packet = MCloudPacketRCV(mcloud)
+        p = self.pyaudio
+        info = p.get_host_api_info_by_index(0)
+        deviceCount = info.get('deviceCount')
 
-                type = packet.packet_type()
-                if packet.packet_type() == 3:
-                    root = ET.fromstring(packet.xml_string)
-                    if "subType" in root.attrib and root.attrib["subType"]=="words":
-                        if args.new_words=="None":
-                            text = root[0].text
-                            processing_set_new_words(text.split("\n") if text is not None else [])
-                            send_new_words()
-                            continue
-                    else:
-                        mcloud.process_data_async(packet, data_callback)
-                elif packet.packet_type() == 7:  # MCloudFlush
-                    """
-                    a flush message has been received -> wait (block) until all pending packages
-                    from the processing queue has been processed -> finalizeCallback will
-                    be called-> flush message will be passed to subsequent components
-                    """
-                    mcloud.wait_for_finish(0, "processing")
-                    mcloud.send_flush()
-                    print("WORKER INFO received flush message ==> waiting for packages.")
-                    mcloudpacketdenit(packet)
-                    break
-                elif packet.packet_type() == 4:  # MCloudDone
-                    print("WOKRER INFO received DONE message ==> waiting for clients.")
-                    mcloud.wait_for_finish(1, "processing")
-                    mcloud.stop_processing("processing")
-                    mcloudpacketdenit(packet)
-                    proceed = False
-                elif packet.packet_type() == 5:  # MCloudError
-                    # In case of a error or reset message, the processing is stopped immediately by
-                    # calling mcloudBreak followed by exiting the thread.
-                    mcloud.wait_for_finish(1, "processing")
-                    mcloud.stop_processing("processing")
-                    mcloudpacketdenit(packet)
-                    print("WORKER INFO received ERROR message >>> waiting for clients.")
-                    proceed = False
-                elif packet.packet_type() == 6:  # MCloudReset
-                    mcloud.stop_processing("processing")
-                    print("CLIENT INFO received RESET message >>> waiting for clients.")
-                    mcloudpacketdenit(packet)
-                    proceed = False
-                else:
-                    print("CLIENT ERROR unknown packet type {!s}".format(packet.packet_type()))
-                    proceed = False
-            print("WORKER WARN connection terminated ==> trying to reconnect.")
-        except:
-            print("Unexpected error. Reconnect in 10 seconds.")
-            time.sleep(10)
-    
-def processing_finalize_callback():
-    print("INFO in processing finalize callback")
-    segmenter.reset()
+        for i in range(0, deviceCount):
+                if p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels') > 0:
+                        devices[i] = p.get_device_info_by_host_api_device_index(0, i).get('name')
+        return devices
 
-def processing_error_callback():
-    print("INFO In processing error callback")
+    def print_all_devices(self) -> None:
+        """
+        Special command, prints all audio devices available
+        """
+        print('-- AUDIO devices:')
+        devices = self.get_audio_devices()
+        for key in devices:
+            dev = devices[key]
+            if isinstance(dev, bytes):
+                dev = dev.decode("ascii", "replace")
+            print('    id=%i - %s' % (key, dev))
 
-def processing_break_callback():
-    print("INFO in processing break callback")
+    @property
+    def pyaudio(self) -> pyaudio.PyAudio:
+        if self._pyaudio == None:
+            self._pyaudio = pyaudio.PyAudio()
+        return self._pyaudio
 
-def init_callback():
-    print("INFO in processing init callback ")
-    segmenter.reset()
+    def set_audio_channel_filter(self, channel: int) -> None:
+        # actually chosing a specific channel is apparently impossible with portaudio,
+        # so we record all channels instead and then filter out the wanted channel with numpy
+        if self.input_id is None:
+            raise BugException()
+        channelCount = self.pyaudio.get_device_info_by_host_api_device_index(0, self.input_id).get('maxInputChannels')
+        #logger.info('Recording channel', channel, 'of', channelCount)
+        self.channel_count = channelCount
+        self.chosen_channel = channel
 
-def data_callback(i,sampleA):
-    sample = np.asarray(sampleA, dtype=np.int16)
-    segmenter.append_signal(sample.tobytes())
-    return 0
+def segmenter_thread(stream_adapter, segmenter):
+    while True:
+        segmenter.append_signal(stream_adapter.read())
 
 def processing_set_new_words(words=[]):
     model.new_words(words)
-
-def send_new_words():
-    words = "\n".join([x.replace(" ","\t") for x in model.words])
-    send_hypo(0,0,words,"text")
 
 def insert_new_words(model, args, b=False):
     while True:
@@ -143,209 +195,7 @@ def insert_new_words(model, args, b=False):
             break
         time.sleep(1)
 
-def send_hypo(start, end, hypo, output):
-    lh = 0 if output=='text' else len(hypo)
-    mcloud_w.send_packet_result_async(start, end, hypo, lh)
-
-class Segment(object):
-    """Represents a hypothesis segment """
-    def __init__(self, hypo, start, end, text=[], fixed=False, final=False):
-        self.hypo = hypo[0]
-        self.bmes = hypo[1]
-        self.start = start
-        self.end = end
-        self.text = text
-        self.fixed = fixed
-        self.final = final
-        self.uppercase = False
-        self.hard_stop = False
-
-    def __str__(self):
-        return self.hypo
-
-def send_segs(segs, output):
-    if len(segs) == 0: return
-    start, end = segs[0].start, segs[-1].end
-    hypo = []
-    for seg in segs: hypo.extend(seg.text)
-    hypo = ['<unk>' if w.startswith('%') or w.startswith('+') or w.startswith('<') or \
-            w.startswith('*') or w.endswith('*') else w for w in hypo]
-    #print('Sending %d %d %s' % (start, end, ' '.join(hypo)))
-    send_hypo(start, end, hypo, output)
-
-def seg2text(segs):
-    global count
-    hypo = []
-    for seg in segs: hypo.append(' '.join(seg.text))
-    return '<%d> %s <%d>' % (segs[0].start, ' | '.join(hypo), segs[-1].end)
-
-def punct_segs(punct, device, dic, space, segs):
-    for j, seg in enumerate(segs):
-        if seg.fixed: continue
-        k, lctx = j, [] 
-        while k > 0 and len(lctx) < 6:
-            lctx = segs[k-1].hypo + lctx
-            k -= 1
-        k, rctx = j+1, []
-        while k < len(segs) and len(rctx) < 6:
-            rctx = rctx + segs[k].hypo
-            k += 1
-        text = token2punct(punct, device, seg, lctx, rctx, dic, space)
-        seg.text = text
-        if len(seg.text) > 0:
-            if seg.uppercase: seg.text[0] = seg.text[0].capitalize()
-            if seg.hard_stop: seg.text[-1] = seg.text[-1].capitalize()
-
-        rctx = sum(len(seg.hypo) for seg in segs[j+1:])
-        if rctx >= 10: seg.fixed = True
-
-    pre_w = ''
-    for seg in segs:
-        for j, word in enumerate(seg.text):
-            if pre_w.endswith('.') or pre_w.endswith('!') or pre_w.endswith('?'): # or pre_w.endswith(':'):
-                seg.text[j] = word.capitalize()
-            pre_w = word
-
-    for seg, seg_nx in zip(segs[:-1], segs[1:]):
-        if seg_nx.fixed: seg.final = True
-
-    return segs
-
-
-def update_and_send(punct, device, dic, space, segs, new_seg, wc, completed=False):
-    if len(segs) > 0:
-        last_seg = segs[-1]
-        if last_seg.start < new_seg.start:
-            segs.append(new_seg)
-        else:
-            new_seg.uppercase = last_seg.uppercase
-            segs[-1] = new_seg
-    else:
-        segs.append(new_seg)
-
-    old_segs, new_segs = [], []   
-    for j in range(len(segs)-1):
-        seg, seg_nx = segs[j], segs[j+1]
-        if seg.end < seg_nx.start - 2*1000:
-            old_segs, new_segs = segs[:j+1], segs[j+1:]
-            old_segs[-1].hard_stop = True
-            old_segs[-1].fixed = False
-            new_segs[0].uppercase = False
-            new_segs[0].fixed = False
-            break
-    if len(old_segs) == 0:
-        clean_time = segs[-1].start - 6*1000 # 6 seconds
-        j = 0
-        while segs[j].end < clean_time or segs[j].final: j+= 1
-        old_segs, new_segs = segs[:j], segs[j:]
-
-    if len(old_segs) > 0:
-        if not old_segs[-1].fixed:
-            old_segs = punct_segs(punct, device, dic, space, old_segs)
-        print('Sending final: ' + seg2text(old_segs))
-
-        for seg in old_segs: wc += len(seg.text)
-        if wc > 100:
-            br = False
-            for j in range(len(old_segs)-1, -1, -1):
-                seg = old_segs[j]
-                for k in range(len(seg.text)-1, -1, -1):
-                    if seg.text[k].endswith('.'):
-                        seg.text[k] = seg.text[k] + '<br><br>'
-                        br = True; wc = 0; break
-                if br: break
-        send_segs(old_segs, args.outputType)
-
-    #if completed:
-        #print(" ".join(token2word([x for s in new_segs for x in s.hypo],dic,space)))
-    segs = punct_segs(punct, device, dic, space, new_segs)
-    if not completed:
-        print('Sending partial: ' + seg2text(segs))
-    else:
-        print('Sending final: ' + seg2text(segs))
-    send_segs(segs, args.outputType)
-
-    punct.model.lock.release()
-
-    return segs, wc
-
-parser = argparse.ArgumentParser(description='pynn')
-#model argument
-parser.add_argument('--model-dic', help='model dictionary', required=True)
-parser.add_argument('--dict', help='dictionary file', default=None)
-parser.add_argument('--punct-dic', help='dictionary file', default=None)
-parser.add_argument('--device', help='device', type=str, default='cuda')
-parser.add_argument('--beam-size', help='beam size', type=int, default=8)
-parser.add_argument('--attn-head', help='attention head', type=int, default=0)
-parser.add_argument('--attn-padding', help='attention padding', type=float, default=0.05)
-parser.add_argument('--stable-time', help='stable size', type=int, default=200)
-parser.add_argument('--fp16', help='float 16 bits', action='store_true')
-parser.add_argument('--prune', help='pruning threshold', type=float, default=1.0)
-parser.add_argument('--incl-block', help='incremental block size', type=int, default=50)
-parser.add_argument('--max-len', help='max length', type=int, default=100)
-parser.add_argument('--space', help='space token', type=str, default='▁')
-parser.add_argument('--seg-based', help='output when audio segment is complete', action='store_true')
-parser.add_argument('--new-words', help='path to text file with new words', default="words.txt")
-
-#worker argument
-parser.add_argument('-s','--server', type=str, default="i13srv53.ira.uka.de")
-parser.add_argument('-p','--port' ,type=int, default=60019)
-parser.add_argument('-n','--name' ,type=str, default="asr-EN")
-parser.add_argument('-fi','--fingerprint', type=str, default="en-EU")
-parser.add_argument('-fo','--outfingerprint',type=str, default="en-EU")
-parser.add_argument('-i','--inputType' ,type=str, default="audio")
-parser.add_argument('-o','--outputType', type=str, default="unseg-text")
-args = parser.parse_args()
-print(args)
-
-serverHost = args.server
-serverPort = args.port
-worker_name = args.name
-inputFingerPrint  = args.fingerprint
-inputType         = args.inputType
-outputFingerPrint = args.outfingerprint
-outputType        = args.outputType
-specifier           = ""
-
-sample_rate = 16000
-VAD_aggressive = 2
-padding_duration_ms = 450
-frame_duration_ms = 30
-rate_begin = 0.65
-rate_end = 0.55
-segmenter = Segmenter(sample_rate, VAD_aggressive, padding_duration_ms, frame_duration_ms, rate_begin, rate_end)
-
-print("#" * 40 + " >> TESTING MCLOUD WRAPPER API << " + "#" * 40)
-mcloud_w = MCloudWrap("asr".encode("utf-8"), 1)
-mcloud_w.add_service(worker_name.encode("utf-8"), "asr".encode("utf-8"), inputFingerPrint.encode("utf-8"), inputType.encode("utf-8"),outputFingerPrint.encode("utf-8"), outputType.encode("utf-8"), specifier.encode("utf-8"))
-#set callback
-mcloud_w.set_callback("init", init_callback)
-mcloud_w.set_data_callback("worker")
-mcloud_w.set_callback("finalize", processing_finalize_callback)
-mcloud_w.set_callback("error", processing_error_callback)
-mcloud_w.set_callback("break", processing_break_callback)
-
-#clean tempfile
-
-fbank_mat = audio.filter_bank(sample_rate, 256, 40)
-print("Initialize the model...")
-model, device, dic = init_asr_model(args)
-punct = init_punct_model(args)
-punct.model = model
-torch.set_grad_enabled(False)
-print("Done.")
-
-#segmentor thread
-record = threading.Thread(target=segmenter_thread, args=(mcloud_w,))
-record.start()
-
-if args.new_words!="None":
-    new_words = threading.Thread(target=insert_new_words, args=(model,args))
-    new_words.start()
-else:
-    processing_set_new_words()
-
-try:
+def decoding_thread(segmenter, model, punct, audiodevice):
     cur_segs, wc = [], 0
     while True:
         if not segmenter.ready:
@@ -404,11 +254,11 @@ try:
                 if punct is not None:
                     #end = start + frames*10
                     new_seg = Segment(clean_noise(hypo, best_memory_entry, dic, args.space), start, end)
-                    cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc, completed=False)
+                    cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc, completed=False, audiodevice=audiodevice)
                 else:
                     hypo = token2word(hypo, dic, args.space)
-                    print('Sending partial: ' + ' '.join(hypo))
-                    send_hypo(start, end, hypo, args.outputType)
+                    #print('Sending partial: ' + ' '.join(hypo))
+                    send_hypo(start, end, hypo, args.outputType, final=False, audiodevice=audiodevice)
 
         if segment.completed:
             adc = segment.get_all()
@@ -420,18 +270,206 @@ try:
             best_memory_entry = best_memory_entry[:-1]
             if punct is not None:
                 new_seg = Segment(clean_noise(hypo, best_memory_entry, dic, args.space), start, end)
-                cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc, completed=True)
+                cur_segs, wc = update_and_send(punct, device, dic, args.space, cur_segs, new_seg, wc, completed=True, audiodevice=audiodevice)
             else:
                 hypo = token2word(hypo, dic, args.space)
-                print('Sending final: ' + ' '.join(hypo))
-                send_hypo(start, end, hypo, args.outputType)
+                #print('Sending final: ' + ' '.join(hypo))
+                send_hypo(start, end, hypo, args.outputType, final=True, audiodevice=audiodevice)
             
             segment.finish()
-            print('Finished segment.')
+            #print('Finished segment.')
             
         time.sleep(0.2)
+
+def send_hypo(start, end, hypo, output, final=False, audiodevice=None):
+    #lh = 0 if output=='text' else len(hypo)
+    #mcloud_w.send_packet_result_async(start, end, hypo, lh)
+    if len(hypo) > 0:
+        print(str(audiodevice)+" | "+str(start)+" | "+str(end)+" | "+(" ".join(hypo)))
+
+class Segment(object):
+    """Represents a hypothesis segment """
+    def __init__(self, hypo, start, end, text=[], fixed=False, final=False):
+        self.hypo = hypo[0]
+        self.bmes = hypo[1]
+        self.start = start
+        self.end = end
+        self.text = text
+        self.fixed = fixed
+        self.final = final
+        self.uppercase = False
+        self.hard_stop = False
+
+    def __str__(self):
+        return self.hypo
+
+def send_segs(segs, output, final=False, audiodevice=None):
+    if len(segs) == 0: return
+    start, end = segs[0].start, segs[-1].end
+    hypo = []
+    for seg in segs: hypo.extend(seg.text)
+    hypo = ['<unk>' if w.startswith('%') or w.startswith('+') or w.startswith('<') or \
+            w.startswith('*') or w.endswith('*') else w for w in hypo]
+    #print('Sending %d %d %s' % (start, end, ' '.join(hypo)))
+    send_hypo(start, end, hypo, output, final=final, audiodevice=audiodevice)
+
+def seg2text(segs):
+    global count
+    hypo = []
+    for seg in segs: hypo.append(' '.join(seg.text))
+    return '<%d> %s <%d>' % (segs[0].start, ' | '.join(hypo), segs[-1].end)
+
+def punct_segs(punct, device, dic, space, segs):
+    for j, seg in enumerate(segs):
+        if seg.fixed: continue
+        k, lctx = j, [] 
+        while k > 0 and len(lctx) < 6:
+            lctx = segs[k-1].hypo + lctx
+            k -= 1
+        k, rctx = j+1, []
+        while k < len(segs) and len(rctx) < 6:
+            rctx = rctx + segs[k].hypo
+            k += 1
+        text = token2punct(punct, device, seg, lctx, rctx, dic, space)
+        seg.text = text
+        if len(seg.text) > 0:
+            if seg.uppercase: seg.text[0] = seg.text[0].capitalize()
+            if seg.hard_stop: seg.text[-1] = seg.text[-1].capitalize()
+
+        rctx = sum(len(seg.hypo) for seg in segs[j+1:])
+        if rctx >= 10: seg.fixed = True
+
+    pre_w = ''
+    for seg in segs:
+        for j, word in enumerate(seg.text):
+            if pre_w.endswith('.') or pre_w.endswith('!') or pre_w.endswith('?'): # or pre_w.endswith(':'):
+                seg.text[j] = word.capitalize()
+            pre_w = word
+
+    for seg, seg_nx in zip(segs[:-1], segs[1:]):
+        if seg_nx.fixed: seg.final = True
+
+    return segs
+
+
+def update_and_send(punct, device, dic, space, segs, new_seg, wc, completed=False, audiodevice=None):
+    if len(segs) > 0:
+        last_seg = segs[-1]
+        if last_seg.start < new_seg.start:
+            segs.append(new_seg)
+        else:
+            new_seg.uppercase = last_seg.uppercase
+            segs[-1] = new_seg
+    else:
+        segs.append(new_seg)
+
+    old_segs, new_segs = [], []   
+    for j in range(len(segs)-1):
+        seg, seg_nx = segs[j], segs[j+1]
+        if seg.end < seg_nx.start - 2*1000:
+            old_segs, new_segs = segs[:j+1], segs[j+1:]
+            old_segs[-1].hard_stop = True
+            old_segs[-1].fixed = False
+            new_segs[0].uppercase = False
+            new_segs[0].fixed = False
+            break
+    if len(old_segs) == 0:
+        clean_time = segs[-1].start - 6*1000 # 6 seconds
+        j = 0
+        while segs[j].end < clean_time or segs[j].final: j+= 1
+        old_segs, new_segs = segs[:j], segs[j:]
+
+    if len(old_segs) > 0:
+        if not old_segs[-1].fixed:
+            old_segs = punct_segs(punct, device, dic, space, old_segs)
+        #print('Sending final: ' + seg2text(old_segs))
+
+        for seg in old_segs: wc += len(seg.text)
+        if wc > 100:
+            br = False
+            for j in range(len(old_segs)-1, -1, -1):
+                seg = old_segs[j]
+                for k in range(len(seg.text)-1, -1, -1):
+                    if seg.text[k].endswith('.'):
+                        seg.text[k] = seg.text[k] + '<br><br>'
+                        br = True; wc = 0; break
+                if br: break
+        send_segs(old_segs, args.outputType, final=True, audiodevice=audiodevice)
+
+    #if completed:
+        #print(" ".join(token2word([x for s in new_segs for x in s.hypo],dic,space)))
+    segs = punct_segs(punct, device, dic, space, new_segs)
+    #if not completed:
+        #print('Sending partial: ' + seg2text(segs))
+    #else:
+        #print('Sending final: ' + seg2text(segs))
+    send_segs(segs, args.outputType, final=completed, audiodevice=audiodevice)
+
+    punct.model.lock.release()
+
+    return segs, wc
+
+parser = argparse.ArgumentParser(description='pynn')
+#model argument
+parser.add_argument('--model-dic', help='model dictionary', default="model/s2s-lstm.dic")
+parser.add_argument('--dict', help='dictionary file', default="model/bpe4k.dic")
+parser.add_argument('--punct-dic', help='dictionary file', default="model/punct.dic")
+parser.add_argument('--device', help='device', type=str, default='cpu')
+parser.add_argument('--beam-size', help='beam size', type=int, default=4)
+parser.add_argument('--attn-head', help='attention head', type=int, default=0)
+parser.add_argument('--attn-padding', help='attention padding', type=float, default=0.05)
+parser.add_argument('--stable-time', help='stable size', type=int, default=200)
+parser.add_argument('--fp16', help='float 16 bits', action='store_true')
+parser.add_argument('--prune', help='pruning threshold', type=float, default=1.0)
+parser.add_argument('--incl-block', help='incremental block size', type=int, default=50)
+parser.add_argument('--max-len', help='max length', type=int, default=100)
+parser.add_argument('--space', help='space token', type=str, default='▁')
+parser.add_argument('--seg-based', help='output when audio segment is complete', action='store_true')
+parser.add_argument('--new-words', help='path to text file with new words', default="words1.txt")
+
+parser.add_argument('--chunksize', type=int, default=1024)
+
+args = parser.parse_args()
+args.outputType = "text"
+#print(args)
+
+fbank_mat = audio.filter_bank()
+torch.set_grad_enabled(False)
+
+stream_adapter = PortaudioStream(chunksize=args.chunksize)
+stream_adapter.print_all_devices()
+
+audiodevices = input("Select the audiodevice number (comma seperated list for multiple devices): ")
+
+threads = []
+for audiodevice in audiodevices.split(","):
+    model, device, dic = init_asr_model(args)
+    punct = init_punct_model(args)
+    punct.model = model
+
+    if args.new_words!="None":
+        new_words = threading.Thread(target=insert_new_words, args=(model,args), daemon=True)
+        new_words.start()
+    else:
+        processing_set_new_words()
+
+    stream_adapter = PortaudioStream(chunksize=args.chunksize)
+    stream_adapter.set_input(int(audiodevice))
+
+    segmenter = Segmenter()
+    
+    record = threading.Thread(target=segmenter_thread, args=(stream_adapter, segmenter), daemon=True)
+    threads.append(record)
+
+    decoding = threading.Thread(target=decoding_thread, args=(segmenter, model, punct, audiodevice), daemon=True)
+    threads.append(decoding)
+
+for t in threads:
+    t.start()
+print("Models loaded and started.")
+
+try:
+    while True:
+        time.sleep(60)
 except KeyboardInterrupt:
     print("Terminating running threads..")
-
-record.join()
-new_words.join()
