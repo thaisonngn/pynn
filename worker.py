@@ -285,7 +285,8 @@ def send_hypo(start, end, hypo, output, final=False, audiodevice=None):
     #lh = 0 if output=='text' else len(hypo)
     #mcloud_w.send_packet_result_async(start, end, hypo, lh)
     if len(hypo) > 0:
-        print(str(audiodevice)+" | "+str(start)+" | "+str(end)+" | "+(" ".join(hypo)))
+        terminal_print.add_output(audiodevice, start, end, " ".join(hypo))
+        #print(str(audiodevice)+" | "+str(start)+" | "+str(end)+" | "+(" ".join(hypo)))
 
 class Segment(object):
     """Represents a hypothesis segment """
@@ -391,7 +392,7 @@ def update_and_send(punct, device, dic, space, segs, new_seg, wc, completed=Fals
                 seg = old_segs[j]
                 for k in range(len(seg.text)-1, -1, -1):
                     if seg.text[k].endswith('.'):
-                        seg.text[k] = seg.text[k] + '<br><br>'
+                        #seg.text[k] = seg.text[k] + '<br><br>'
                         br = True; wc = 0; break
                 if br: break
         send_segs(old_segs, args.outputType, final=True, audiodevice=audiodevice)
@@ -415,7 +416,7 @@ parser.add_argument('--model-dic', help='model dictionary', default="model/s2s-l
 parser.add_argument('--dict', help='dictionary file', default="model/bpe4k.dic")
 parser.add_argument('--punct-dic', help='dictionary file', default="model/punct.dic")
 parser.add_argument('--device', help='device', type=str, default='cpu')
-parser.add_argument('--beam-size', help='beam size', type=int, default=4)
+parser.add_argument('--beam-size', help='beam size', type=int, default=1)
 parser.add_argument('--attn-head', help='attention head', type=int, default=0)
 parser.add_argument('--attn-padding', help='attention padding', type=float, default=0.05)
 parser.add_argument('--stable-time', help='stable size', type=int, default=200)
@@ -468,8 +469,16 @@ for t in threads:
     t.start()
 print("Models loaded and started.")
 
+import utils
+terminal_print = utils.TerminalPrint()
+
 try:
     while True:
         time.sleep(60)
 except KeyboardInterrupt:
     print("Terminating running threads..")
+
+    import curses
+    curses.echo()
+    curses.nocbreak()
+    curses.endwin()
